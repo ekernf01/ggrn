@@ -2,17 +2,23 @@ from multiprocessing.sharedctypes import Value
 import anndata
 from joblib import Parallel, delayed, cpu_count, dump
 import pandas as pd
-import os
+import os, shutil
 import sklearn.linear_model
 import sklearn.ensemble
 import sklearn.neural_network
 import sklearn.kernel_ridge
 import sklearn.dummy
 import numpy as np
+import scipy.sparse
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
 except ImportError:
     print("DCD-FG is not installed, and related models (DCD-FG, NOTEARS) will not be available.")
+try:
+    from gears import PertData as GEARSPertData
+    from gears import GEARS
+except ImportError:
+    print("GEARS is not installed, and related models will not be available.")
 import ggrn_backend3.api as autoregressive
 # Project-specific paths
 import load_networks
@@ -284,12 +290,14 @@ class GRN:
         Args:
             folder_name (str): Where to save files.
         """
+        os.makedirs(folder_name, exist_ok=True)
         if self.training_args["method"].startswith("DCDFG"):
             raise NotImplementedError(f"Parameter saving/loading is not supported for DCDFG")
-        
-        os.makedirs(folder_name, exist_ok=True)
-        for i,target in enumerate(self.train.var_names):
-            dump(self.models[i], os.path.join(folder_name, f'{target}.joblib'))
+        elif self.training_args["method"].startswith("GEARS"):
+            self.models.save_model(os.path.join(folder_name, "gears"))
+        else:
+            for i,target in enumerate(self.train.var_names):
+                dump(self.models[i], os.path.join(folder_name, f'{target}.joblib'))
         return
 
     def fit(
@@ -331,8 +339,7 @@ class GRN:
             time_strategy (str): 'steady_state' predicts each a gene from sample i using TF activity features derived
                 from sample i. 'two_step' is no longer available, but it would train a model to gradually transform control samples into perturbed samples by
                 first perturbing the targeted gene, then propagating the perturbation to other TFs, then propagating throughout the genome. 
-                
-            kwargs: Passed to DCDFG. See help(dcdfg_wrapper.DCDFGWrapper.train). 
+            kwargs: Passed to DCDFG or GEARS. See help(dcdfg_wrapper.DCDFGWrapper.train). 
         """
         if network_prior is None:
             network_prior = "ignore" if self.network is None else "restrictive"
@@ -391,6 +398,64 @@ class GRN:
             )
             autoregressive_model.train()      
             self.models = autoregressive_model
+        elif method.startswith("GEARS"):
+            np.testing.assert_equal(
+                np.array(self.eligible_regulators), 
+                np.array(self.train.var_names),     
+                err_msg="GEARS can only use all genes as regulators."
+            )
+            assert len(confounders)==0, "GEARS cannot currently include confounders."
+            assert network_prior=="ignore", "Our interface to GEARS cannot currently include custom networks."
+            assert cell_type_sharing_strategy=="identical", "GEARS cannot currently fit each cell type separately."
+            assert predict_self, "GEARS cannot rule out autoregulation. Set predict_self=True."
+            assert time_strategy == 'steady_state', "GEARS does not explicitly model time."
+            # Data setup according to GEARS data tutorial:
+            # https://github.com/snap-stanford/GEARS/blob/master/demo/data_tutorial.ipynb 
+            def reformat_perturbation_for_gears(perturbation):
+                perturbation = perturbation.split(",")
+                perturbation = ["ctrl"] + [p if p in self.train.var.index else "ctrl" for p in perturbation]
+                perturbation = list(set(perturbation)) # avoid ctrl+ctrl
+                perturbation = "+".join(perturbation)
+                return perturbation
+            self.train.var['gene_name'] = self.train.var.index
+            self.train.obs['condition'] = [reformat_perturbation_for_gears(p) for p in self.train.obs['perturbation']]
+            self.train.obs['cell_type'] = "all"
+            
+            os.makedirs("./ggrn_gears_input", exist_ok=True)
+            shutil.rmtree("./ggrn_gears_input")
+            pert_data = GEARSPertData("./ggrn_gears_input")
+            # GEARS has certain input reqs:
+            # - expects sparse matrix for X
+            # - needs the base of the log-transform to be explicit
+            # - needs to write to hdf5, so no sets in .uns
+            self.train.uns["log1p"] = dict()
+            self.train.uns["log1p"]["base"] = np.exp(1)
+            self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
+            self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
+            self.train.X = scipy.sparse.csr_matrix(self.train.X)
+            pert_data.new_data_process(dataset_name = 'current', adata = self.train)
+            pert_data.load(data_path = './ggrn_gears_input/current')
+            defaults = {
+                "seed": 1,
+                "batch_size": 32,
+                "test_batch_size": 128,
+                "hidden_size": 64,
+                "device": "cpu",
+                "epochs": 20,
+            }
+            if not kwargs:
+                kwargs = dict()
+            for k in kwargs:
+                if k not in defaults:
+                    raise KeyError(f"Unexpected keyword arg passed to GEARS wrapper. Expected: {'  '.join(defaults.keys())}")
+            for k in defaults:
+                if k not in kwargs:
+                    kwargs[k] = defaults[k]
+            pert_data.prepare_split(split = 'simulation', seed = kwargs["seed"] )
+            pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
+            self.models = GEARS(pert_data, device = kwargs["device"])
+            self.models.model_initialize(hidden_size = kwargs["hidden_size"])
+            self.models.train(epochs = kwargs["epochs"])
         elif method.startswith("DCDFG"):
             np.testing.assert_equal(
                 np.array(self.eligible_regulators), 
@@ -429,7 +494,8 @@ class GRN:
                     return sklearn.ensemble.GradientBoostingRegressor().fit(X, y)
             elif method == "ExtraTreesRegressor":
                 def FUN(X,y):
-                    return sklearn.ensemble.ExtraTreesRegressor().fit(X, y)
+                    et = sklearn.ensemble.ExtraTreesRegressor(n_jobs=1).fit(X, y)
+                    return et
             elif method == "KernelRidge":
                 def FUN(X,y):
                     return sklearn.kernel_ridge.KernelRidge().fit(X, y)
@@ -445,9 +511,13 @@ class GRN:
                     ).fit(X, y)
             elif method == "OrthogonalMatchingPursuitCV":
                 def FUN(X,y):
-                    return sklearn.linear_model.OrthogonalMatchingPursuitCV(
-                        fit_intercept=True, 
-                    ).fit(X, y)
+                    try:
+                        omp = sklearn.linear_model.OrthogonalMatchingPursuitCV(
+                            fit_intercept=True
+                        ).fit(X, y)
+                    except ValueError: #fails with ValueError: attempt to get argmin of an empty sequence
+                        omp = sklearn.dummy.DummyRegressor(strategy="mean").fit(X, y)
+                    return omp
             elif method == "ARDRegression":
                 def FUN(X,y):
                     return sklearn.linear_model.ARDRegression(
@@ -455,9 +525,11 @@ class GRN:
                     ).fit(X, y)
             elif method == "BayesianRidge":
                 def FUN(X,y):
-                    return sklearn.linear_model.BayesianRidge(
-                        fit_intercept=True,
+                    br = sklearn.linear_model.BayesianRidge(
+                        fit_intercept=True, copy_X = True
                     ).fit(X, y)
+                    del br.sigma_ # Default behavior is to return a full PxP covariance matrix for the coefs -- it's too big.
+                    return br
             elif method == "LassoCV":
                 def FUN(X,y):
                     return sklearn.linear_model.LassoCV(
@@ -508,6 +580,7 @@ class GRN:
         self,
         perturbations: list,
         starting_expression: anndata.AnnData = None,
+        control_subtype = None,
         do_parallel: bool = True,
         add_noise = False,
         noise_sd = None,
@@ -521,6 +594,8 @@ class GRN:
                 expression np.nan will be treated as a control, no matter the name.
             starting_expression (anndata.AnnData): Initial conditions in the same shape as the output predictions. If 
                 None, starting state will be set to the mean of the training data control expression values.
+            control_subtype (str): only controls with this prefix are considered. For example, 
+                in the Nakatake data there are different types of controls labeled "emerald" and "rtTA".
             do_parallel (bool): if True, use joblib parallelization. 
             add_noise (bool): if True, return simulated data Y + e instead of predictions Y 
                 where e is IID Gaussian with variance equal to the estimated residual variance.
@@ -549,15 +624,19 @@ class GRN:
         if starting_expression is None:
             starting_expression = predictions.copy()
             # Determine contents of one observation (expr and metadata)
-            all_controls = np.where(self.train.obs["is_control"])[0]
+            if control_subtype is None or np.isnan(control_subtype):
+                all_controls = self.train.obs["is_control"] 
+            else:
+                all_controls = self.train.obs["is_control"]& self.train.obs["perturbation"].str.contains(control_subtype, regex = True)
+            all_controls = np.where(all_controls)[0]
             starting_metadata_one   = self.train.obs.iloc[[all_controls[0]], :].copy()
             def toArraySafe(X):
                 try:
                     return X.toarray()
                 except:
                     return X
-            starting_expression_one = toArraySafe(self.train.X[        all_controls,:]).mean(axis=0, keepdims = True)
-            starting_features_one   = toArraySafe(self.features[       all_controls,:]).mean(axis=0, keepdims = True)
+            starting_expression_one = toArraySafe(self.train.X[  all_controls,:]).mean(axis=0, keepdims = True)
+            starting_features_one   = toArraySafe(self.features[ all_controls,:]).mean(axis=0, keepdims = True)
             # Now fill up all observations the same way
             starting_features = np.zeros((len(perturbations), len(self.eligible_regulators)))
             for i in range(len(perturbations)):
@@ -602,8 +681,15 @@ class GRN:
         if self.training_args["method"].startswith("autoregressive"):
             predictions = self.models.predict(perturbations = perturbations, starting_expression = starting_expression)
         elif self.training_args["method"].startswith("DCDFG"):
-            predictions = self.models.predict(perturbations, baseline_expression = starting_expression.X)     
-        else:
+            predictions = self.models.predict(perturbations, baseline_expression = starting_expression.X)
+        elif self.training_args["method"].startswith("GEARS"):
+            non_control = [p for p in perturbations if p[0] in self.models.gene_list]
+            y = self.models.predict([p[0].split(",") for p in non_control])
+            # Result is a dict with keys like "FOXA1_HNF4A"
+            predictions.X = starting_expression.X + np.array([
+                y[p[0].replace(",", "_")] if p[0] in self.models.gene_list else [0]*predictions.X.shape[1] for p in perturbations 
+            ])
+        else: 
             if self.training_args["cell_type_sharing_strategy"] == "distinct":
                 cell_type_labels = predictions.obs[self.training_args["cell_type_labels"]]
             else:

@@ -25,6 +25,16 @@ import load_networks
 import load_perturbations
 
 
+def isnan_safe(x):
+    """
+    A safe way to check if an arbitrary object is np.nan. Useful because when we save metadata to csv, it will
+    be read as NaN even if it was written as null. 
+    """
+    try:
+        return np.isnan()
+    except:
+        return False
+
 class LinearSimulator:
     """Stand-in for sklearn.linear_model.RidgeCV to allow simulation prior to model fitting."""
     def __init__(self, dimension) -> None:
@@ -624,10 +634,15 @@ class GRN:
         if starting_expression is None:
             starting_expression = predictions.copy()
             # Determine contents of one observation (expr and metadata)
-            if control_subtype is None or np.isnan(control_subtype):
+            if control_subtype is None or isnan_safe(control_subtype):
                 all_controls = self.train.obs["is_control"] 
             else:
-                all_controls = self.train.obs["is_control"]& self.train.obs["perturbation"].str.contains(control_subtype, regex = True)
+                print(f"Using controls prefixed by {control_subtype}")
+                all_controls = self.train.obs["is_control"] & self.train.obs["perturbation"].str.contains(control_subtype, regex = True)
+                if all_controls.sum() == 0:
+                    print(all_controls)
+                    print(self.train.obs.head())
+                    raise ValueError(f"No controls found for control_subtype {control_subtype}.")
             all_controls = np.where(all_controls)[0]
             starting_metadata_one   = self.train.obs.iloc[[all_controls[0]], :].copy()
             def toArraySafe(X):
@@ -683,7 +698,7 @@ class GRN:
         elif self.training_args["method"].startswith("DCDFG"):
             predictions = self.models.predict(perturbations, baseline_expression = starting_expression.X)
         elif self.training_args["method"].startswith("GEARS"):
-            non_control = [p for p in perturbations if p[0] in self.models.gene_list]
+            non_control = [p for p in perturbations if all(g in self.models.pert_list for g in p[0])]
             y = self.models.predict([p[0].split(",") for p in non_control])
             # Result is a dict with keys like "FOXA1_HNF4A"
             predictions.X = starting_expression.X + np.array([

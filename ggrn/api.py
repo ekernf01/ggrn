@@ -31,7 +31,7 @@ def isnan_safe(x):
     be read as NaN even if it was written as null. 
     """
     try:
-        return np.isnan()
+        return np.isnan(x)
     except:
         return False
 
@@ -698,11 +698,15 @@ class GRN:
         elif self.training_args["method"].startswith("DCDFG"):
             predictions = self.models.predict(perturbations, baseline_expression = starting_expression.X)
         elif self.training_args["method"].startswith("GEARS"):
-            non_control = [p for p in perturbations if all(g in self.models.pert_list for g in p[0])]
-            y = self.models.predict([p[0].split(",") for p in non_control])
+            non_control = [p for p in perturbations if all(g in self.models.pert_list for g in p[0].split(","))]
+            # GEARS does not need expression level after perturbation
+            non_control = [p[0].split(",") for p in non_control]
+            # GEARS is very slow so it pays to remove these dupes.
+            non_control = list(set(non_control))
+            y = self.models.predict(non_control)
             # Result is a dict with keys like "FOXA1_HNF4A"
             predictions.X = starting_expression.X + np.array([
-                y[p[0].replace(",", "_")] if p[0] in self.models.gene_list else [0]*predictions.X.shape[1] for p in perturbations 
+                y[p[0].replace(",", "_")] if p[0] in self.models.pert_list else [0]*predictions.X.shape[1] for p in perturbations 
             ])
         else: 
             if self.training_args["cell_type_sharing_strategy"] == "distinct":

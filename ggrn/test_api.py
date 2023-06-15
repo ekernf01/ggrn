@@ -1,4 +1,3 @@
-PROJECT_PATH = '/home/ekernf01/Desktop/jhu/research/projects/perturbation_prediction/cell_type_knowledge_transfer/'
 import os
 import shutil
 import unittest
@@ -7,19 +6,22 @@ import numpy as np
 import scanpy as sc 
 import scipy
 import anndata
-os.chdir(PROJECT_PATH + "perturbation_benchmarking")
-import sys
-import importlib
-sys.path.append("src")
 import ggrn
-importlib.reload(ggrn)
-sys.path.append(os.path.expanduser(os.path.join(PROJECT_PATH, 'network_collection', 'load_networks'))) 
+
+# Access our code
+import load_perturbations
 import load_networks
-importlib.reload(load_networks)
+import ggrn.api as ggrn
 
+# Access our data collections
+load_networks.set_grn_location(
+    '../network_collection/networks'
+)
+load_perturbations.set_data_path(
+    '../perturbation_data/perturbations'
+)
 
-
-train   = sc.read_h5ad("../accessory_data/nakatake.h5ad")
+train   = load_perturbations.load_perturbation("nakatake")
 train.X = scipy.sparse.csr_matrix(train.X) 
 network = load_networks.LightNetwork(files=["../accessory_data/human_promoters.parquet"])
 example_perturbations = [("Control,KLF8", "0,0"), ("GATA1", 0), ("GATA1,GFP", f"0,{str(np.nan)}"), ("empty_vector", np.nan)]

@@ -7,9 +7,13 @@ import sklearn.linear_model
 import sklearn.ensemble
 import sklearn.neural_network
 import sklearn.kernel_ridge
+from sklearn.model_selection import cross_val_score
 import sklearn.dummy
 import numpy as np
 import scipy.sparse
+import pickle
+import json
+from torch.cuda import is_available as is_gpu_available
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
 except ImportError:
@@ -52,7 +56,7 @@ class GRN:
         network: load_networks.LightNetwork = None, 
         eligible_regulators = None,
         validate_immediately = True
-        ):
+    ):
         """Create a GRN object.
 
         Args:
@@ -70,7 +74,8 @@ class GRN:
             pass
         assert network is None or type(network)==load_networks.LightNetwork
         self.network = network 
-        self.eligible_regulators = [tf for tf in eligible_regulators if tf in train.var_names]
+        # Make sure regulators are observed
+        self.eligible_regulators = [g for g in eligible_regulators if g in train.var_names]
         self.models = [None for _ in self.train.var_names]
         self.training_args = {}
         if validate_immediately:
@@ -157,14 +162,6 @@ class GRN:
         Returns:
             No return value. Instead, this modifies self.models.
         """
-        if self.training_args["time_strategy"] == "two_step":
-            raise ValueError("The two_step strategy has been discontinued.")
-        elif self.training_args["time_strategy"] == "steady_state":
-            # Non steady state modeling will use a completely different backend.
-            pass
-        else:
-            raise ValueError("'time_strategy' must be 'steady_state' or 'two_step'.")
-        
 
         if pruning_strategy == "lasso":
             raise NotImplementedError("lasso pruning not implemented yet.")
@@ -271,7 +268,6 @@ class GRN:
             self.training_args["network_prior"] = "restrictive"
             self.training_args["cell_type_sharing_strategy"] = "identical"
             self.training_args["confounders"] = []
-            self.training_args["time_strategy"] = "steady_state"
             self.training_args["method"] = "RidgeCV"
             for i in range(len(self.train.var_names)):
                 self.models[i] = LinearSimulator(dimension=len(get_regulators(
@@ -319,9 +315,11 @@ class GRN:
         network_prior: str = None,    
         pruning_strategy: str = "none", 
         pruning_parameter: str = None,          
-        projection: str = "none", 
-        predict_self = False,   
-        time_strategy: str = "steady_state",  
+        matching_method: str = None,
+        low_dimensional_structure: str = None,
+        low_dimensional_training: str = None,
+        S: str = None, 
+        predict_self: str = False,   
         do_parallel: bool = True,
         kwargs = {},
     ):
@@ -330,7 +328,7 @@ class GRN:
         Args:
             method (str): Regression method to use. Defaults to "RidgeCVExtraPenalty", which uses 
                 sklearn.linear_model.RidgeCV and combats overfitting by scanning higher penalty params whenever
-                the highest one is selected. Other methods not implemented yet. 
+                the highest one is selected. 
             confounders (list): Not implemented yet.
             cell_type_sharing_strategy (str, optional): Whether to fit one model across all training data ('identical') 
                 or fit separate ones ('distinct'). Defaults to "distinct".
@@ -344,15 +342,14 @@ class GRN:
                 - "none": don't prune the model.
                 - maybe more options will be implemented. 
             pruning_parameter (numeric, optional): e.g. lasso penalty or total number of nonzero coefficients. See "pruning_strategy" for details.
-            projection (str, optional): Not implemented yet.
             predict_self (bool, optional): Should e.g. POU5F1 activity be used to predict POU5F1 expression? Defaults to False.
-            time_strategy (str): 'steady_state' predicts each a gene from sample i using TF activity features derived
-                from sample i. 'two_step' is no longer available, but it would train a model to gradually transform control samples into perturbed samples by
-                first perturbing the targeted gene, then propagating the perturbation to other TFs, then propagating throughout the genome. 
+            test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.
             kwargs: Passed to DCDFG or GEARS. See help(dcdfg_wrapper.DCDFGWrapper.train). 
         """
         if network_prior is None:
             network_prior = "ignore" if self.network is None else "restrictive"
+        if network_prior != "ignore":
+            assert self.network is not None
         if self.features is None:
             raise ValueError("You may not call GRN.fit() until you have extracted features with GRN.extract_tf_activity().")
 
@@ -363,7 +360,6 @@ class GRN:
         self.training_args["cell_type_labels"]           = cell_type_labels
         self.training_args["predict_self"]               = predict_self
         self.training_args["method"]                     = method
-        self.training_args["time_strategy"]              = time_strategy
         # Check that the cell types match between the network and the expression data
         if network_prior != "ignore" and self.training_args["cell_type_sharing_strategy"] != 'identical':
             ct_from_network = self.network.get_all_one_field("cell_type")
@@ -385,40 +381,46 @@ class GRN:
                 err_msg="autoregressive models can only use all genes as regulators."
             )
             assert len(confounders)==0, "autoregressive models cannot currently include confounders."
-            assert network_prior=="ignore", "autoregressive models cannot currently include known network structure."
             assert cell_type_sharing_strategy=="identical", "autoregressive models cannot currently fit each cell type separately."
             assert predict_self, "autoregressive models currently cannot exclude autoregulation. Set predict_self=True to continue."
-            assert time_strategy == 'steady_state', "autoregressive currently ignores the time_strategy arg."
-            _, low_dimensional_structure, low_dimensional_training = method.split("-")
-            print(
-                f"""autoregressive args parsed as:
-                low_dimensional_structure: {low_dimensional_structure}
-                low_dimensional_training: {low_dimensional_training}
-                """
-            )
+            
+            # TODO: allow user to input latent dimension or network structure
+            # if network_prior!="ignore":
+                # pass
+                # low_dimensional_value = ??? self.network # Make sparse matrix from network structure
+            # else:
+                # low_dimensional_value = ??? # allow user to input latent dimentions
+            # Init and train model 
             autoregressive_model = autoregressive.GGRNAutoregressiveModel(
                 self.train, 
-                matching_method = "closest",
-                regression_method = "linear",
+                matching_method = matching_method,
                 low_dimensional_structure = low_dimensional_structure,
                 low_dimensional_training = low_dimensional_training,
-                low_dimensional_value = 1, #latent dimension or, if low_dimensional_training=="fixed", an entire projection matrix 
-                S=1, # any positive int
+                # low_dimensional_value = low_dimensional_value, 
+                S = S, 
                 network = None, # use a LightNetwork such as example_network if low_dimensional_training=="fixed"
             )
             autoregressive_model.train()      
             self.models = autoregressive_model
+        elif method.startswith("GeneFormer"):
+            raise NotImplementedError()
+        elif method.startswith("docker"):
+            # There is no actual training here, just copying data. Training happens when you call predict.
+            container_name = "-".join(method.split("-")[1:])
+            print(f"container name: {container_name}")
+            print(f"input folder: from_to_docker")
+            try:
+                shutil.rmtree("from_to_docker")
+            except:
+                pass
+            os.makedirs("from_to_docker", exist_ok=True)
+            self.train.write_h5ad("from_to_docker/train.h5ad")
+            json.dumps(kwargs, "from_to_docker/kwargs.json")
         elif method.startswith("GEARS"):
-            np.testing.assert_equal(
-                np.array(self.eligible_regulators), 
-                np.array(self.train.var_names),     
-                err_msg="GEARS can only use all genes as regulators."
-            )
             assert len(confounders)==0, "GEARS cannot currently include confounders."
             assert network_prior=="ignore", "Our interface to GEARS cannot currently include custom networks."
             assert cell_type_sharing_strategy=="identical", "GEARS cannot currently fit each cell type separately."
             assert predict_self, "GEARS cannot rule out autoregulation. Set predict_self=True."
-            assert time_strategy == 'steady_state', "GEARS does not explicitly model time."
             # Data setup according to GEARS data tutorial:
             # https://github.com/snap-stanford/GEARS/blob/master/demo/data_tutorial.ipynb 
             def reformat_perturbation_for_gears(perturbation):
@@ -430,27 +432,41 @@ class GRN:
             self.train.var['gene_name'] = self.train.var.index
             self.train.obs['condition'] = [reformat_perturbation_for_gears(p) for p in self.train.obs['perturbation']]
             self.train.obs['cell_type'] = "all"
-            
-            os.makedirs("./ggrn_gears_input", exist_ok=True)
-            shutil.rmtree("./ggrn_gears_input")
-            pert_data = GEARSPertData("./ggrn_gears_input")
             # GEARS has certain input reqs:
             # - expects sparse matrix for X
             # - needs the base of the log-transform to be explicit
             # - needs to write to hdf5, so no sets in .uns
+            # - cannot handle perturbations with just one sample
             self.train.uns["log1p"] = dict()
             self.train.uns["log1p"]["base"] = np.exp(1)
             self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
             self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
             self.train.X = scipy.sparse.csr_matrix(self.train.X)
-            pert_data.new_data_process(dataset_name = 'current', adata = self.train)
-            pert_data.load(data_path = './ggrn_gears_input/current')
+            pert_frequencies = self.train.obs['condition'].value_counts()
+            singleton_perts = pert_frequencies[pert_frequencies==1].index
+            print(f"Removing {len(singleton_perts)} singleton perturbations from the training data.", flush=True)
+            self.train = self.train[~self.train.obs.condition.isin(singleton_perts), :]
+            # Clean up any previous runs
+            try:
+                shutil.rmtree("./ggrn_gears_input")
+            except FileNotFoundError:
+                pass
+            try:
+                os.remove("GEARS_gene_set.pkl")
+            except FileNotFoundError:
+                pass
+            try: 
+                os.remove("data/go_essential_current.csv")
+            except FileNotFoundError:
+                pass
+            
+            # Set training params to kwargs or defaults
             defaults = {
                 "seed": 1,
                 "batch_size": 32,
                 "test_batch_size": 128,
                 "hidden_size": 64,
-                "device": "cpu",
+                "device": "cuda" if is_gpu_available() else "cpu",
                 "epochs": 20,
             }
             if not kwargs:
@@ -461,6 +477,19 @@ class GRN:
             for k in defaults:
                 if k not in kwargs:
                     kwargs[k] = defaults[k]
+            # Feed in custom genes
+            gene_set_path = "GEARS_gene_set.pkl"
+            try:
+                os.remove(gene_set_path)
+            except FileNotFoundError:
+                pass
+            with open(gene_set_path, 'wb') as f:
+                pickle.dump(self.eligible_regulators, f)
+            # Follow GEARS data setup tutorial
+            pert_data = GEARSPertData("./ggrn_gears_input", 
+                                      gene_set_path = gene_set_path)
+            pert_data.new_data_process(dataset_name = 'current', adata = self.train)
+            pert_data.load(data_path = './ggrn_gears_input/current')
             pert_data.prepare_split(split = 'simulation', seed = kwargs["seed"] )
             pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
             self.models = GEARS(pert_data, device = kwargs["device"])
@@ -476,7 +505,6 @@ class GRN:
             assert network_prior=="ignore", "DCDFG cannot currently include known network structure."
             assert cell_type_sharing_strategy=="identical", "DCDFG cannot currently fit each cell type separately."
             assert not predict_self, "DCDFG cannot include autoregulation."
-            assert time_strategy == 'steady_state', "DCDFG assumes steady state."
             factor_graph_model = dcdfg_wrapper.DCDFGWrapper()
             _, constraint_mode, model_type, do_use_polynomials = method.split("-")
             print(f"""DCDFG args parsed as:
@@ -525,7 +553,7 @@ class GRN:
                         omp = sklearn.linear_model.OrthogonalMatchingPursuitCV(
                             fit_intercept=True
                         ).fit(X, y)
-                    except ValueError: #fails with ValueError: attempt to get argmin of an empty sequence
+                    except ValueError: #may fail with ValueError: attempt to get argmin of an empty sequence
                         omp = sklearn.dummy.DummyRegressor(strategy="mean").fit(X, y)
                     return omp
             elif method == "ARDRegression":
@@ -607,7 +635,7 @@ class GRN:
             control_subtype (str): only controls with this prefix are considered. For example, 
                 in the Nakatake data there are different types of controls labeled "emerald" and "rtTA".
             do_parallel (bool): if True, use joblib parallelization. 
-            add_noise (bool): if True, return simulated data Y + e instead of predictions Y 
+            add_noise (bool): if True, return simulated data Y + e instead of predictions Y (measurement error)
                 where e is IID Gaussian with variance equal to the estimated residual variance.
             noise_sd (bool): sd of the variable e described above. Defaults to estimates from the fitted models.
             seed (int): RNG seed.
@@ -695,15 +723,30 @@ class GRN:
         # Now predict the expression
         if self.training_args["method"].startswith("autoregressive"):
             predictions = self.models.predict(perturbations = perturbations, starting_expression = starting_expression)
+        elif self.training_args["method"].startswith("docker"):
+            json.dumps(perturbations, "from_to_docker/perturbations.json")
+            raise NotImplementedError()
+            os.system(f"docker run {container_name}") # Memory and space requirements???
+            os.system(f"docker cp from_to_docker/perturbations.json {container_name}:/perturbations.json") 
+            os.system(f"docker cp from_to_docker/kwargs.json {container_name}:") 
+            os.system(f"docker cp from_to_docker/train.h5ad {container_name}:") 
+            os.system(f"docker cp from_to_docker {container_name}:from_to_docker") 
+            "docker cp container_id:/src/. target"
+
+            # TODO: 
+            # - Run the container and copy in those files to `/home`
+            # - When the container finishes, copy `predictions.h5ad` out of `/home`
+            # - As a test, make a docker container that returns the median of the training data in the right shape.
         elif self.training_args["method"].startswith("DCDFG"):
             predictions = self.models.predict(perturbations, baseline_expression = starting_expression.X)
         elif self.training_args["method"].startswith("GEARS"):
             non_control = [p for p in perturbations if all(g in self.models.pert_list for g in p[0].split(","))]
             # GEARS does not need expression level after perturbation
-            non_control = [p[0].split(",") for p in non_control]
-            # GEARS is very slow so it pays to remove these dupes.
+            non_control = [p[0] for p in non_control]
+            # GEARS prediction is slow so it helps a lot to remove the dupes.
             non_control = list(set(non_control))
-            y = self.models.predict(non_control)
+            # Input is list of lists
+            y = self.models.predict([p.split(",") for p in non_control])
             # Result is a dict with keys like "FOXA1_HNF4A"
             predictions.X = starting_expression.X + np.array([
                 y[p[0].replace(",", "_")] if p[0] in self.models.pert_list else [0]*predictions.X.shape[1] for p in perturbations 
@@ -720,9 +763,6 @@ class GRN:
             for i, pp in enumerate(perturbations):
                 if pp[0] in predictions.var_names:
                     predictions[i, pp[0]].X = pp[1]
-            # Do one more time-step
-            if self.training_args["time_strategy"] == "two_step":
-                raise ValueError("time_strategy='two_step' has been discontinued.")
             
         # Add noise. This is useful for simulations. 
         if add_noise:

@@ -406,15 +406,11 @@ class GRN:
             raise NotImplementedError()
         elif method.startswith("docker"):
             # There is no actual training here, just copying data. Training happens when you call predict.
-            container_name = "-".join(method.split("-")[1:])
-            print(f"container name: {container_name}")
-            print(f"input folder: from_to_docker")
             try:
                 shutil.rmtree("from_to_docker")
             except:
                 pass
             os.makedirs("from_to_docker", exist_ok=True)
-            self.train.write_h5ad("from_to_docker/train.h5ad")
             json.dumps(kwargs, "from_to_docker/kwargs.json")
         elif method.startswith("GEARS"):
             assert len(confounders)==0, "GEARS cannot currently include confounders."
@@ -444,8 +440,8 @@ class GRN:
             self.train.X = scipy.sparse.csr_matrix(self.train.X)
             pert_frequencies = self.train.obs['condition'].value_counts()
             singleton_perts = pert_frequencies[pert_frequencies==1].index
-            print(f"Removing {len(singleton_perts)} singleton perturbations from the training data.", flush=True)
-            self.train = self.train[~self.train.obs.condition.isin(singleton_perts), :]
+            print(f"Marking {len(singleton_perts)} singleton perturbations as controls in the training data.", flush=True)
+            self.train[~self.train.obs.condition.isin(singleton_perts), :].obs["condition"] = "ctrl"
             # Clean up any previous runs
             try:
                 shutil.rmtree("./ggrn_gears_input")
@@ -724,18 +720,23 @@ class GRN:
         if self.training_args["method"].startswith("autoregressive"):
             predictions = self.models.predict(perturbations = perturbations, starting_expression = starting_expression)
         elif self.training_args["method"].startswith("docker"):
+            try:
+                _, docker_args, image_name = self.training_args["method"].split("|")
+            except ValueError as e:
+                raise ValueError(f"docker argument parsing failed on input {self.training_args['method']} with error {repr(e)}. Expected format: docker|myargs|mycontainer")
+            print(f"container name: {image_name}")
+            print(f"args to 'docker run': {docker_args}")
+            self.training_args["docker_args"] = docker_args
+            self.train.write_h5ad("from_to_docker/train.h5ad")
             json.dumps(perturbations, "from_to_docker/perturbations.json")
-            raise NotImplementedError()
-            os.system(f"docker run {container_name}") # Memory and space requirements???
-            os.system(f"docker cp from_to_docker/perturbations.json {container_name}:/perturbations.json") 
-            os.system(f"docker cp from_to_docker/kwargs.json {container_name}:") 
-            os.system(f"docker cp from_to_docker/train.h5ad {container_name}:") 
-            os.system(f"docker cp from_to_docker {container_name}:from_to_docker") 
-            "docker cp container_id:/src/. target"
+            raise NotImplementedError()    
+            assert os.file.exists("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
+            os.system(f"docker run --rm "
+                      f" --mount type=bind,source={os.getcwd}/from_to_docker/,destination=/from_to_docker "
+                      f" {self.training_args['docker_args']} "
+                      f" {container_name} /bin/sh train.sh") 
+            assert os.file.exists("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad"
 
-            # TODO: 
-            # - Run the container and copy in those files to `/home`
-            # - When the container finishes, copy `predictions.h5ad` out of `/home`
             # - As a test, make a docker container that returns the median of the training data in the right shape.
         elif self.training_args["method"].startswith("DCDFG"):
             predictions = self.models.predict(perturbations, baseline_expression = starting_expression.X)

@@ -2,6 +2,7 @@ from multiprocessing.sharedctypes import Value
 import anndata
 from joblib import Parallel, delayed, cpu_count, dump
 import pandas as pd
+import scanpy as sc
 import os, shutil
 import sklearn.linear_model
 import sklearn.ensemble
@@ -724,20 +725,24 @@ class GRN:
                 _, docker_args, image_name = self.training_args["method"].split("|")
             except ValueError as e:
                 raise ValueError(f"docker argument parsing failed on input {self.training_args['method']} with error {repr(e)}. Expected format: docker|myargs|mycontainer")
-            print(f"container name: {image_name}")
+            print(f"image name: {image_name}")
             print(f"args to 'docker run': {docker_args}")
             self.training_args["docker_args"] = docker_args
             self.train.write_h5ad("from_to_docker/train.h5ad")
             json.dumps(perturbations, "from_to_docker/perturbations.json")
-            raise NotImplementedError()    
             assert os.file.exists("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
             os.system(f"docker run --rm "
                       f" --mount type=bind,source={os.getcwd}/from_to_docker/,destination=/from_to_docker "
                       f" {self.training_args['docker_args']} "
-                      f" {container_name} /bin/sh train.sh") 
+                      f" {image_name} /bin/sh train.sh") 
             assert os.file.exists("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad"
-
-            # - As a test, make a docker container that returns the median of the training data in the right shape.
+            predictions = sc.read_h5ad("from_to_docker/predictions.h5ad")
+            assert all([predictions.obs.loc[idx, "perturbation"] == perturbations[i] for i,idx in enumerate(predictions.obs_names)]), \
+                "Method in Docker container violated expectations of GGRN: Output must contain the " + \
+                "perturbations in the expected order, labeled in adata.obs['perturbations']"
+            assert all(predictions.var_names == self.train.var_names), \
+                "Method in Docker container violated expectations of GGRN:" + \
+                "Variable names must be identical between training and test data."
         elif self.training_args["method"].startswith("DCDFG"):
             predictions = self.models.predict(perturbations, baseline_expression = starting_expression.X)
         elif self.training_args["method"].startswith("GEARS"):

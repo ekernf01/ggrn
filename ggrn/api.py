@@ -79,6 +79,7 @@ class GRN:
         self.eligible_regulators = [g for g in eligible_regulators if g in train.var_names]
         self.models = [None for _ in self.train.var_names]
         self.training_args = {}
+        self.features = None
         if validate_immediately:
             assert self.check_perturbation_dataset()
 
@@ -352,7 +353,7 @@ class GRN:
         if network_prior != "ignore":
             assert self.network is not None
         if self.features is None:
-            raise ValueError("You may not call GRN.fit() until you have extracted features with GRN.extract_tf_activity().")
+            self.extract_tf_activity()
 
         # Save some training args to later ensure prediction is consistent with training.
         self.training_args["confounders"]                = confounders
@@ -412,7 +413,8 @@ class GRN:
             except:
                 pass
             os.makedirs("from_to_docker", exist_ok=True)
-            json.dumps(kwargs, "from_to_docker/kwargs.json")
+            with open("from_to_docker/kwargs.json", "x") as f:
+                json.dump(kwargs, f)
         elif method.startswith("GEARS"):
             assert len(confounders)==0, "GEARS cannot currently include confounders."
             assert network_prior=="ignore", "Our interface to GEARS cannot currently include custom networks."
@@ -722,24 +724,36 @@ class GRN:
             predictions = self.models.predict(perturbations = perturbations, starting_expression = starting_expression)
         elif self.training_args["method"].startswith("docker"):
             try:
-                _, docker_args, image_name = self.training_args["method"].split("|")
+                _, docker_args, image_name = self.training_args["method"].split("__")
             except ValueError as e:
-                raise ValueError(f"docker argument parsing failed on input {self.training_args['method']} with error {repr(e)}. Expected format: docker|myargs|mycontainer")
+                raise ValueError(f"docker argument parsing failed on input {self.training_args['method']} with error {repr(e)}. Expected format: docker__myargs__mycontainer")
             print(f"image name: {image_name}")
             print(f"args to 'docker run': {docker_args}")
             self.training_args["docker_args"] = docker_args
+            self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
+            self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
             self.train.write_h5ad("from_to_docker/train.h5ad")
-            json.dumps(perturbations, "from_to_docker/perturbations.json")
-            assert os.file.exists("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
-            os.system(f"docker run --rm "
-                      f" --mount type=bind,source={os.getcwd}/from_to_docker/,destination=/from_to_docker "
-                      f" {self.training_args['docker_args']} "
-                      f" {image_name} /bin/sh train.sh") 
-            assert os.file.exists("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad"
+            with open("from_to_docker/perturbations.json", 'w') as f:
+                json.dump(perturbations, f)
+            assert os.path.isfile("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
+            cmd = f"docker run --rm " + \
+                f" --mount type=bind,source={os.getcwd()}/from_to_docker/,destination=/from_to_docker " + \
+                f" {self.training_args['docker_args']} " + \
+                f" {image_name}"
+            print(f"Running command: \n{cmd}")
+            os.system(cmd) 
+            assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad"
             predictions = sc.read_h5ad("from_to_docker/predictions.h5ad")
-            assert all([predictions.obs.loc[idx, "perturbation"] == perturbations[i] for i,idx in enumerate(predictions.obs_names)]), \
+            predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
+            predictions.obs["expression_level_after_perturbation"] = predictions.obs["expression_level_after_perturbation"].astype(str)
+            assert all([predictions.obs.loc[idx, "perturbation"] == perturbations[i][0] 
+                        for i,idx in enumerate(predictions.obs_names)]), \
                 "Method in Docker container violated expectations of GGRN: Output must contain the " + \
-                "perturbations in the expected order, labeled in adata.obs['perturbations']"
+                "perturbations in the expected order, labeled in adata.obs['perturbation']"
+            assert all([predictions.obs.loc[idx, "expression_level_after_perturbation"] == str(perturbations[i][1])
+                        for i,idx in enumerate(predictions.obs_names)]), \
+                "Method in Docker container violated expectations of GGRN: Output must contain the " + \
+                "expression levels after perturbation in the expected order, labeled in adata.obs['expression_level_after_perturbation']"
             assert all(predictions.var_names == self.train.var_names), \
                 "Method in Docker container violated expectations of GGRN:" + \
                 "Variable names must be identical between training and test data."

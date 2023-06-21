@@ -165,9 +165,7 @@ class GRN:
             No return value. Instead, this modifies self.models.
         """
 
-        if pruning_strategy == "lasso":
-            raise NotImplementedError("lasso pruning not implemented yet.")
-        elif pruning_strategy == "prune_and_refit":
+        if pruning_strategy == "prune_and_refit":
             print("Fitting")
             self.models = self.fit_models_parallel(
                 FUN = FUN, 
@@ -176,6 +174,10 @@ class GRN:
                 verbose = verbose,
             )
             print("Pruning")
+            try:
+                self.models[i][cell_type].coef_.squeeze()
+            except Exception as e:
+                raise ValueError(f"Unable to extract coefficients. Pruning may not work with this type of regression model. Error message: {repr(e)}")
             chunks = []
             for i in range(len(self.train.var_names)):
                 if self.training_args["cell_type_sharing_strategy"] == "distinct":
@@ -190,7 +192,7 @@ class GRN:
                                                 target = self.train.var_names[i], 
                                                 network = self.network,
                                                 cell_type = cell_type,
-                                                ), 
+                                            ), 
                                         "target": self.train.var_names[i], 
                                         "weight": self.models[i][cell_type].coef_.squeeze(),
                                         "cell_type": cell_type,
@@ -239,7 +241,7 @@ class GRN:
                 verbose = verbose,
             )
         else:
-            raise NotImplementedError(f"pruning_strategy should be one of 'none', 'lasso', 'prune_and_refit'; got {pruning_strategy} ")
+            raise NotImplementedError(f"pruning_strategy should be one of 'none' or 'prune_and_refit'; got {pruning_strategy} ")
     
     def simulate_data(
         self,
@@ -249,7 +251,7 @@ class GRN:
         feature_extraction_method = "tf_rna",
         seed = 0,
     ) -> anndata.AnnData:
-        """Generate simulated expression data
+        """Generate simulated expression data from a fitted model. 
 
         Args:
             perturbations (iterable): See GRN.predict()
@@ -301,12 +303,55 @@ class GRN:
         os.makedirs(folder_name, exist_ok=True)
         if self.training_args["method"].startswith("DCDFG"):
             raise NotImplementedError(f"Parameter saving/loading is not supported for DCDFG")
+        elif self.training_args["method"].startswith("docker"):
+            raise NotImplementedError(f"Parameter saving/loading is not supported for docker")
+        elif self.training_args["method"].startswith("GeneFormer"):
+            raise NotImplementedError(f"Parameter saving/loading is not supported for GeneFormer")
+        elif self.training_args["method"].startswith("autoregressive"):
+            raise NotImplementedError(f"Parameter saving/loading is not supported for autoregressive")
         elif self.training_args["method"].startswith("GEARS"):
             self.models.save_model(os.path.join(folder_name, "gears"))
         else:
             for i,target in enumerate(self.train.var_names):
                 dump(self.models[i], os.path.join(folder_name, f'{target}.joblib'))
         return
+
+    def validate_method(self, method):
+        assert type(method)==str, f"method arg must be a str; got {type(method)}"
+        allowed_methods = [
+            "mean",
+            "median",
+            "GradientBoostingRegressor",
+            "ExtraTreesRegressor",
+            "KernelRidge",
+            "ElasticNetCV",
+            "LarsCV",
+            "OrthogonalMatchingPursuitCV",
+            "ARDRegression",
+            "BayesianRidge",
+            "LassoCV",
+            "LassoLarsIC",
+            "RidgeCV",
+            "RidgeCVExtraPenalty",
+        ]
+        allowed_prefixes = [
+            "autoregressive",
+            "GeneFormer",
+            "docker",
+            "GEARS",
+            "DCDFG",
+        ]
+        for p in allowed_prefixes:
+            if method.startswith(p):
+                return
+        for p in allowed_methods:
+            if method == p:
+                return
+        print("Allowed prefixes:", flush=True)
+        print(allowed_prefixes,    flush=True)
+        print("Allowed methods:",  flush=True)
+        print(allowed_methods,     flush=True)
+        raise ValueError("method must start with an allowed prefix or must equal an allowed value (these will be printed to stdout).")  
 
     def fit(
         self,
@@ -317,7 +362,7 @@ class GRN:
         network_prior: str = None,    
         pruning_strategy: str = "none", 
         pruning_parameter: str = None,          
-        matching_method: str = None,
+        matching_method: str = "steady_state",
         low_dimensional_structure: str = None,
         low_dimensional_training: str = None,
         S: str = None, 
@@ -328,9 +373,7 @@ class GRN:
         """Fit the model.
 
         Args:
-            method (str): Regression method to use. Defaults to "RidgeCVExtraPenalty", which uses 
-                sklearn.linear_model.RidgeCV and combats overfitting by scanning higher penalty params whenever
-                the highest one is selected. 
+            method (str): Regression method to use. 
             confounders (list): Not implemented yet.
             cell_type_sharing_strategy (str, optional): Whether to fit one model across all training data ('identical') 
                 or fit separate ones ('distinct'). Defaults to "distinct".
@@ -344,6 +387,17 @@ class GRN:
                 - "none": don't prune the model.
                 - maybe more options will be implemented. 
             pruning_parameter (numeric, optional): e.g. lasso penalty or total number of nonzero coefficients. See "pruning_strategy" for details.
+            matching_method: (str, optional): "closest" (choose the closest control), or
+                "user" (do nothing and expect an existing column 'matched_control'), or 
+                "random" (choose a random control), or 
+                "steady_state" (match each observation with itself).
+            regression_method (str): Currently only allows "linear".
+            low_dimensional_structure (str): "none" or "RGQ". If "RGQ", dynamics will be modeled in a linear subspace. See also low_dimensional_training.
+            low_dimensional_training (str): "SVD" or "fixed" or "supervised". How to learn the linear subspace. 
+                If "SVD", perform an SVD on the data.
+                If "fixed", use a user-provided projection matrix.
+                If "supervised", learn the projection and its (approximate) inverse via backprop.
+            S (str, optional): For time-series models, how many steps separate each observation from its paired control.
             predict_self (bool, optional): Should e.g. POU5F1 activity be used to predict POU5F1 expression? Defaults to False.
             test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.
             kwargs: Passed to DCDFG or GEARS. See help(dcdfg_wrapper.DCDFGWrapper.train). 
@@ -354,7 +408,7 @@ class GRN:
             assert self.network is not None
         if self.features is None:
             self.extract_tf_activity()
-
+        self.validate_method(method)
         # Save some training args to later ensure prediction is consistent with training.
         self.training_args["confounders"]                = confounders
         self.training_args["network_prior"]              = network_prior
@@ -398,9 +452,9 @@ class GRN:
                 matching_method = matching_method,
                 low_dimensional_structure = low_dimensional_structure,
                 low_dimensional_training = low_dimensional_training,
+                # TODO: reformat a LightNetwork such as example_network if low_dimensional_training=="fixed"
                 # low_dimensional_value = low_dimensional_value, 
-                S = S, 
-                network = None, # use a LightNetwork such as example_network if low_dimensional_training=="fixed"
+                S = S
             )
             autoregressive_model.train()      
             self.models = autoregressive_model
@@ -413,6 +467,23 @@ class GRN:
             except:
                 pass
             os.makedirs("from_to_docker", exist_ok=True)
+            ggrn_args = {
+                "regression_method": method,
+                "confounders":confounders,
+                "cell_type_sharing_strategy":  cell_type_sharing_strategy,
+                "cell_type_labels":cell_type_labels, 
+                "network_prior": network_prior,
+                "pruning_strategy": pruning_strategy,
+                "pruning_parameter":   pruning_parameter,   
+                "matching_method": matching_method,
+                "low_dimensional_structure":  low_dimensional_structure,
+                "low_dimensional_training": low_dimensional_training,
+                "S": S,
+                "predict_self": predict_self,   
+                "do_parallel": do_parallel,
+            }
+            with open("from_to_docker/ggrn_args.json", "x") as f:
+                json.dump(ggrn_args, f)
             with open("from_to_docker/kwargs.json", "x") as f:
                 json.dump(kwargs, f)
         elif method.startswith("GEARS"):
@@ -505,7 +576,10 @@ class GRN:
             assert cell_type_sharing_strategy=="identical", "DCDFG cannot currently fit each cell type separately."
             assert not predict_self, "DCDFG cannot include autoregulation."
             factor_graph_model = dcdfg_wrapper.DCDFGWrapper()
-            _, constraint_mode, model_type, do_use_polynomials = method.split("-")
+            try:
+                _, constraint_mode, model_type, do_use_polynomials = method.split("-")
+            except:
+                raise ValueError("DCDFG expects hyphen-separated string DCDFG-constraint-model-do_polynomials like 'DCDFG-spectral_radius-mlplr-false'.")
             print(f"""DCDFG args parsed as:
                constraint_mode: {constraint_mode}
                     model_type: {model_type}
@@ -520,6 +594,7 @@ class GRN:
                 **kwargs
             )
         else:     
+            assert len(confounders)==0, "sklearn models cannot currently include confounders."
             if method == "mean":
                 def FUN(X,y):
                     return sklearn.dummy.DummyRegressor(strategy="mean").fit(X, y)

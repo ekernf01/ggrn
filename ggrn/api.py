@@ -24,8 +24,16 @@ try:
     from gears import GEARS
 except ImportError:
     print("GEARS is not installed, and related models will not be available.")
-import ggrn_backend3.api as autoregressive
-# Project-specific paths
+try:
+    from geneformer import InSilicoPerturber, TranscriptomeTokenizer
+except ImportError:
+    print("geneformer is not installed, and related models will not be available.")
+try:
+    import ggrn_backend3.api as autoregressive
+except ImportError:
+    print("autoregressive backend is not installed, and related models will not be available.")
+
+# These govern expectations about data format for regulatory networks and perturbation data.
 import load_networks
 import load_perturbations
 
@@ -459,7 +467,8 @@ class GRN:
             autoregressive_model.train()      
             self.models = autoregressive_model
         elif method.startswith("GeneFormer"):
-            raise NotImplementedError()
+            raise NotImplementedError("Sorry, the GeneFormer interface is still in progress.")
+            
         elif method.startswith("docker"):
             # There is no actual training here, just copying data. Training happens when you call predict.
             try:

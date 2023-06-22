@@ -96,7 +96,11 @@ For more information on this model, see [here](http://github.com/ekernf01/ggrn_b
 
 #### Backend 4: GEARS
 
-GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. The `eligible_regulators` arg behaves as expected and other arguments can be passed via `kwargs`.
+GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. The `eligible_regulators` arg behaves as expected and other arguments can be passed via `kwargs`. A GPU is typically required to use GEARS, but we find it is possible to use on a CPU if you replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
+
+#### Backend 5: GeneFormer
+
+GeneFormer is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GeneFormer in the GGRN software. As recommended by the authors in [issue 44](https://huggingface.co/ctheodoris/Geneformer/discussions/44), we obtain post-perturbation cell embeddings from GeneFormer, then we train a simple model to convert the post-perturbation cell embeddings to log fold changes. Arguments to GeneFormer's functions for cell perturbations can be passed via `kwargs`. A GPU is required to use GeneFormer, but we find it is possible to use on a CPU if you replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
 
 #### Adding a new backend
 

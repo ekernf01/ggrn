@@ -1,10 +1,12 @@
 ## A declarative grammar of inference methods for gene regulatory networks
 
-GGRN is a set of Python modules that together allow users to flexibly combine traits of different inference methods for gene regulatory network inference. Check out the [writing repo](https://github.com/ekernf01/perturbation_writing) for more information.
+GGRN is a set of Python modules that together allow users to flexibly combine traits of different inference methods for gene regulatory network inference. A full exposition is provided in the appendix of our preprint (not up yet). 
 
 ### Installation
 
-WRITEME
+```bash
+pip install git+https://github.com/ekernf01/ggrn
+```
 
 ### Usage
 
@@ -40,7 +42,7 @@ predictions = grn.predict([("POU5F1", 0), ("NANOG", 0)])
 
 ### Detailed documentation
 
-From the grammar set out in `GGRN.md`, many of the combinations that can be specified either make no sense, or would be very complex to implement. The current software offers subsets of features via several separate backends, such as GEARS and DCD-FG. 
+From the grammar set out in our technical documentation, many of the combinations that can be specified either make no sense, or would be very complex to implement. The current software offers subsets of features via several separate backends. 
 
 With apologies, the `method` arg of the `grn.fit` is currently used to select both the backend AND the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility.
 

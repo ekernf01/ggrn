@@ -1,4 +1,3 @@
-from multiprocessing.sharedctypes import Value
 import anndata
 from joblib import Parallel, delayed, cpu_count, dump
 import pandas as pd
@@ -8,7 +7,6 @@ import sklearn.linear_model
 import sklearn.ensemble
 import sklearn.neural_network
 import sklearn.kernel_ridge
-from sklearn.model_selection import cross_val_score
 import sklearn.dummy
 import numpy as np
 import scipy.sparse
@@ -47,13 +45,6 @@ def isnan_safe(x):
         return np.isnan(x)
     except:
         return False
-
-class LinearSimulator:
-    """Stand-in for sklearn.linear_model.RidgeCV to allow simulation prior to model fitting."""
-    def __init__(self, dimension) -> None:
-        self.coef_ = np.ones(dimension) / dimension
-    def predict(self, X):
-        return X.dot(self.coef_)
 
 class GRN:
     """
@@ -94,8 +85,8 @@ class GRN:
     def check_perturbation_dataset(self):
         return load_perturbations.check_perturbation_dataset(ad=self.train)
 
-    def extract_tf_activity(self, train: anndata.AnnData = None, in_place: bool = True, method = "tf_rna"):
-        """Create a feature matrix where each row matches a row in self.train 
+    def extract_tf_activity(self, train: anndata.AnnData = None, in_place: bool = True, method = "mrna"):
+        """Create a feature matrix where each row matches a row in self.train and
         each column represents activity of the corresponding TF in self.eligible_regulators.
 
         Args:
@@ -106,10 +97,24 @@ class GRN:
         if train is None:
             train = self.train # shallow copy is best here
 
-        if method == "tf_rna":
-            features = train[:,self.eligible_regulators].X
+        if method.lower() in {"tf_mrna", "tf_rna", "mrna"}:
+            features = train[:,self.eligible_regulators].X.copy()
+            for int_i, i in enumerate(train.obs.index):
+                # Expected format: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
+                pert_genes = train.obs.loc[i, "perturbation"].split(",")
+                pert_exprs = [float(f) for f in str(train.obs.loc[i, "expression_level_after_perturbation"]).split(",")]
+                assert len(pert_genes) == len(pert_exprs), f"Malformed perturbation in sample {i}: {train.obs[i,:]}"
+                for pert_idx in range(len(pert_genes)):
+                    # If perturbation label is not a gene, leave it unperturbed.
+                    # If expression after perturbation is nan, leave it unperturbed.
+                    # This behavior is used to handle controls. 
+                    if pert_genes[pert_idx] not in self.eligible_regulators or np.isnan(pert_exprs[pert_idx]):
+                        pass
+                    else:
+                        column = self.eligible_regulators.index(pert_genes[pert_idx])
+                        features[int_i, column] = pert_exprs[pert_idx]
         else:
-            raise NotImplementedError("Only method='tf_rna' is available so far.")
+            raise NotImplementedError("Only 'mrna' is available so far for feature extraction methods.")
         
         if in_place:
             self.features = features # shallow copy is best here too
@@ -182,14 +187,15 @@ class GRN:
                 verbose = verbose,
             )
             print("Pruning")
-            try:
-                self.models[i][cell_type].coef_.squeeze()
-            except Exception as e:
-                raise ValueError(f"Unable to extract coefficients. Pruning may not work with this type of regression model. Error message: {repr(e)}")
             chunks = []
             for i in range(len(self.train.var_names)):
                 if self.training_args["cell_type_sharing_strategy"] == "distinct":
                     for cell_type in self.train.obs[self.training_args["cell_type_labels"]].unique():
+                        try:
+                            coef = self.models[i][cell_type].coef_.squeeze()
+                        except Exception as e:
+                            raise ValueError(f"Unable to extract coefficients. Pruning may not work with this type of regression model. Error message: {repr(e)}")
+
                         chunks.append(
                             pd.DataFrame(
                                     {
@@ -202,7 +208,7 @@ class GRN:
                                                 cell_type = cell_type,
                                             ), 
                                         "target": self.train.var_names[i], 
-                                        "weight": self.models[i][cell_type].coef_.squeeze(),
+                                        "weight": coef,
                                         "cell_type": cell_type,
                                     } 
                                 )
@@ -250,57 +256,6 @@ class GRN:
             )
         else:
             raise NotImplementedError(f"pruning_strategy should be one of 'none' or 'prune_and_refit'; got {pruning_strategy} ")
-    
-    def simulate_data(
-        self,
-        perturbations,
-        effects: str = "fitted_models",
-        noise_sd = None,
-        feature_extraction_method = "tf_rna",
-        seed = 0,
-    ) -> anndata.AnnData:
-        """Generate simulated expression data from a fitted model. 
-
-        Args:
-            perturbations (iterable): See GRN.predict()
-            effects (str, optional): Either "fitted_models" (use effect sizes from an already-trained GRN) or
-                "uniform_on_provided_network" (use a provided network structure with small positive effects for all regulators).
-            noise_sd (float, optional): Standard deviation of noise. Defaults to None: noise sd will be extracted from fitted models.
-            seed (int): RNG seed. 
-
-        Returns:
-            anndata.AnnData: simulated gene expression values.
-        """
-        if effects == "fitted_models":
-            adata = self.predict(perturbations, add_noise=True, noise_sd=noise_sd)
-        elif effects == "uniform_on_provided_network":
-            if self.network is None:
-                raise ValueError("For network-based simulation, network structure must be provided during GRN initialization.")
-            self.training_args["predict_self"] = False
-            self.training_args["network_prior"] = "restrictive"
-            self.training_args["cell_type_sharing_strategy"] = "identical"
-            self.training_args["confounders"] = []
-            self.training_args["method"] = "RidgeCV"
-            for i in range(len(self.train.var_names)):
-                self.models[i] = LinearSimulator(dimension=len(get_regulators(
-                    self.eligible_regulators, 
-                    predict_self = False, 
-                    target = self.train.var_names[i],
-                    network = self.network,
-                    network_prior=self.training_args["network_prior"],
-                )))
-            self.extract_tf_activity(method = feature_extraction_method)
-            adata = self.predict(perturbations, add_noise=True, noise_sd=noise_sd, seed = seed)
-        else:
-            raise ValueError("'effects' must be one of 'fitted_models' or 'uniform_on_provided_network'.")
-        # Make it pass the usual validation checks, same as all our perturbation data
-        adata.obs["perturbation_type"] = self.train.obs["perturbation_type"][0]
-        adata.obs["is_control"] = [all([np.isnan(float(x)) for x in str(p[1]).split(",")]) for p in perturbations]
-        adata.obs["spearmanCorr"] = np.nan #could simulate actual replicates later if needed
-        adata.uns["perturbed_and_measured_genes"]     = [p[0] for p in perturbations if p[0] in adata.var_names]
-        adata.uns["perturbed_but_not_measured_genes"] = [p[0] for p in perturbations if p[0] not in adata.var_names]
-        adata.raw = adata.copy()
-        return adata
 
     def save_models(self, folder_name:str):
         """Save all the regression models to a folder via joblib.dump (one file per gene).
@@ -415,7 +370,7 @@ class GRN:
         if network_prior != "ignore":
             assert self.network is not None
         if self.features is None:
-            self.extract_tf_activity()
+            self.extract_tf_activity(train = self.train, in_place = True)
         self.validate_method(method)
         # Save some training args to later ensure prediction is consistent with training.
         self.training_args["confounders"]                = confounders
@@ -468,7 +423,8 @@ class GRN:
             self.models = autoregressive_model
         elif method.startswith("GeneFormer"):
             raise NotImplementedError("Sorry, the GeneFormer interface is still in progress.")
-            
+        elif method.startswith("SCFormer"):
+            raise NotImplementedError("Sorry, the SCFormer interface is still in progress.")
         elif method.startswith("docker"):
             # There is no actual training here, just copying data. Training happens when you call predict.
             try:
@@ -713,7 +669,7 @@ class GRN:
             perturbations (iterable of tuples): Iterable of tuples with gene and its expression after 
                 perturbation, e.g. {("POU5F1", 0.0), ("NANOG", 0.0), ("non_targeting", np.nan)}. Anything with
                 expression np.nan will be treated as a control, no matter the name.
-            starting_expression (anndata.AnnData): Initial conditions in the same shape as the output predictions. If 
+            starting_expression (anndata.AnnData): Expression prior to perturbation, in the same shape as the output predictions. If 
                 None, starting state will be set to the mean of the training data control expression values.
             control_subtype (str): only controls with this prefix are considered. For example, 
                 in the Nakatake data there are different types of controls labeled "emerald" and "rtTA".
@@ -724,27 +680,26 @@ class GRN:
             seed (int): RNG seed.
         """
         if type(self.models)==list and not self.models:
-            raise ValueError("You may not call GRN.predict() until you have called GRN.fit().")
+            raise RuntimeError("No fitted models found. You may not call GRN.predict() until you have called GRN.fit().")
         assert type(perturbations)==list, "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
         assert all(type(p)==tuple  for p in perturbations), "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
         assert all(len(p)==2       for p in perturbations), "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
         assert all(type(p[0])==str for p in perturbations), "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
         
-        # Set up containers for expression + metadata
+        # Set up AnnData object for output
         columns_to_transfer = self.training_args["confounders"].copy()
         if self.training_args["cell_type_sharing_strategy"] != "identical":
             columns_to_transfer.append(self.training_args["cell_type_labels"])
-
         predictions = _prediction_prep(
             nrow = len(perturbations),
             columns_to_transfer = columns_to_transfer,
             var = self.train.var.copy()
         )
 
-        # Set up starting expression
+        # Set up AnnData for starting expression: the state of the observations prior to perturbation. 
         if starting_expression is None:
             starting_expression = predictions.copy()
-            # Determine contents of one observation (expr and metadata)
+            # We allow users to select a subset of controls using a prefix, e.g. GFP overexpression instead of DMSO. 
             if control_subtype is None or isnan_safe(control_subtype):
                 all_controls = self.train.obs["is_control"] 
             else:
@@ -755,6 +710,7 @@ class GRN:
                     print(self.train.obs.head())
                     raise ValueError(f"No controls found for control_subtype {control_subtype}.")
             all_controls = np.where(all_controls)[0]
+            # Select all starting expression and metadata from the aforementioned controls
             starting_metadata_one   = self.train.obs.iloc[[all_controls[0]], :].copy()
             def toArraySafe(X):
                 try:
@@ -762,47 +718,40 @@ class GRN:
                 except:
                     return X
             starting_expression_one = toArraySafe(self.train.X[  all_controls,:]).mean(axis=0, keepdims = True)
-            starting_features_one   = toArraySafe(self.features[ all_controls,:]).mean(axis=0, keepdims = True)
-            # Now fill up all observations the same way
-            starting_features = np.zeros((len(perturbations), len(self.eligible_regulators)))
             for i in range(len(perturbations)):
                 idx_str = str(i)
-                starting_features[i, :] = starting_features_one.copy()
                 starting_expression.X[i, :] = starting_expression_one.copy()
                 for col in columns_to_transfer:
-                    predictions.obs.loc[idx_str, col] = starting_metadata_one.loc[0, col].values
-        else:
-            # Enforce that starting_expression has correct type, shape, metadata contents
-            assert type(starting_expression) == anndata.AnnData, f"starting_expression must be anndata; got {type(starting_expression)}"
-            assert starting_expression.obs.shape[0] == len(perturbations), "Starting expression must be None or an AnnData with one obs per perturbation."
-            assert all(c in set(starting_expression.obs.columns) for c in columns_to_transfer), f"starting_expression must be accompanied by these metadata fields: \n{'  '.join(columns_to_transfer)}"
-            starting_expression.obs["perturbation"] = "NA"
-            starting_expression.obs["expression_level_after_perturbation"] = -999
-            starting_expression.obs.index = [str(x) for x in range(len(starting_expression.obs.index))]
-            # Extract features for prediction & add meta to predictions container
-            predictions.obs = starting_expression.obs.copy()
-            starting_features = self.extract_tf_activity(train = starting_expression, in_place=False).copy()
+                    predictions.obs.loc[idx_str, col] = starting_metadata_one.loc[:, col].values
+        
+        # Enforce that starting_expression has correct type, shape, metadata contents
+        assert type(starting_expression) == anndata.AnnData, f"starting_expression must be anndata; got {type(starting_expression)}"
+        assert starting_expression.obs.shape[0] == len(perturbations), "Starting expression must be None or an AnnData with one obs per perturbation."
+        assert all(c in set(starting_expression.obs.columns) for c in columns_to_transfer), f"starting_expression must be accompanied by these metadata fields: \n{'  '.join(columns_to_transfer)}"
+        starting_expression.obs["perturbation"] = "NA"
+        starting_expression.obs["expression_level_after_perturbation"] = -999
+        starting_expression.obs.index = [str(x) for x in range(len(starting_expression.obs.index))]
+        predictions.obs = starting_expression.obs.copy()
 
-        # At this point, the starting features are ready, and the predictions object has some of the right metadata,
-        # but it doesn't have either the right perturbations in the metadata, or the right expression predictions. 
-
-        # implement perturbations, including altering metadata and features but not yet downstream expression
+        # At this point, the pre- and post-perturbation objects are in the right shape, and have most of the
+        # right metadata.  
+        # But they don't have the right perturbations listed in the metadata.
+        # And the perturbations have not been propagated to the features or the expression predictions. 
+        
+        # The following will implement perturbations, including altering metadata and features,
+        # but not yet downstream expression.
         predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
+        starting_expression.obs["perturbation"] = starting_expression.obs["perturbation"].astype(str)
         for i in range(len(perturbations)):
             idx_str = str(i)
             # Expected input: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
-            pert_genes = perturbations[i][0].split(",")
-            pert_exprs = [float(f) for f in str(perturbations[i][1]).split(",")]
-            assert len(pert_genes) == len(pert_exprs), f"Malformed perturbation in sample {i}: {perturbations[i][0]}, {perturbations[i][1]}"
-            for pert_idx in range(len(pert_genes)):
-                # If it's nan, leave it unperturbed -- used for studying fitted values on controls. 
-                if not np.isnan(pert_exprs[pert_idx]):
-                    column = [tf == pert_genes[pert_idx] for tf in self.eligible_regulators]
-                    starting_features[i, column] = pert_exprs[pert_idx]
             predictions.obs.loc[idx_str, "perturbation"]                        = perturbations[i][0]
             predictions.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[i][1]
-
-
+            starting_expression.obs.loc[idx_str, "perturbation"]                        = perturbations[i][0]
+            starting_expression.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[i][1]
+        starting_features = self.extract_tf_activity(train = starting_expression, 
+                                                     in_place=False).copy()
+            
         # Now predict the expression
         if self.training_args["method"].startswith("autoregressive"):
             predictions = self.models.predict(perturbations = perturbations, starting_expression = starting_expression)
@@ -883,7 +832,7 @@ class GRN:
                     try:
                         noise_sd = np.sqrt(np.mean(self.models[i].cv_values_))
                     except AttributeError:
-                        raise ValueError("Noise standard deviation could not be extracted from trained models. Please provide it when calling GRN.simulate().")
+                        raise ValueError("Noise standard deviation could not be extracted from trained models.")
                 predictions.X[:,i] = predictions.X[:,i] + np.random.standard_normal(len(predictions.X[:,i]))*noise_sd
         return predictions
 

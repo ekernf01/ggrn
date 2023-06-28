@@ -42,9 +42,9 @@ predictions = grn.predict([("POU5F1", 0), ("NANOG", 0)])
 
 ### Detailed documentation
 
-From the grammar set out in our technical documentation, many of the combinations that can be specified either make no sense, or would be very complex to implement. The current software offers subsets of features via several separate backends. 
+From the grammar set out in our technical documentation, many of the combinations that can be specified either make no sense, or would be very complex to implement. The current software offers only subsets of features. These are implemented via several separate backends. 
 
-With apologies, the `method` arg of the `grn.fit` is currently used to select both the backend AND the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility.
+With apologies, the `method` arg of the `grn.fit` is currently used to select both the backend AND the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility. Where `regression_method` is mentioned below, it currently corresponds to the `method` arg of `GRN.fit`.
 
 #### Backend 1: steady state 
 
@@ -55,6 +55,7 @@ The initial implementation requires steady-state matching; it ignores the passag
 - `prediction_timescale`: ignored (fixed to 1)
 - `method`: A method from sklearn, e.g. `KernelRidge`
 - `eligible_regulators`: Any list of gene names
+- `feature_extraction`: ignored (fixed to "mRNA")
 - `low_dimensional_structure`: ignored (fixed to "none")
 - `low_dimensional_training`: ignored
 - `pruning_strategy`: "none", "prune_and_refit"
@@ -70,6 +71,7 @@ We incorporate DCD-FG as a second backend for GGRN. We offer a thin wrapper with
 - `prediction_timescale`: ignored (fixed to 1)
 - `regression_method`: "mlplr" or "linear" or "poly"
 - `eligible_regulators`: ignored (all genes are used)
+- `feature_extraction`: ignored (fixed to "mRNA")
 - `low_dimensional_structure`: "none", "dynamics"
 - `low_dimensional_training`: ignored (fixed to "supervised")
 - `pruning_strategy`: ignored (DCD-FG's strategy is used)
@@ -86,6 +88,7 @@ As the third backend of GGRN, we implement an autoregressive model that explicit
 - `prediction_timescale`: positive int
 - `regression_method`: ignored (fixed to "linear")
 - `eligible_regulators`: ignored (all genes are used)
+- `feature_extraction`: ignored (fixed to "mRNA")
 - `low_dimensional_structure`: "none", "dynamics"
 - `low_dimensional_training`: "user", "svd", "supervised"
 - `pruning_strategy`: ignored (fixed to "none")
@@ -96,7 +99,7 @@ For more information on this model, see [here](http://github.com/ekernf01/ggrn_b
 
 #### Backend 4: GEARS
 
-GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. The `eligible_regulators` arg behaves as expected and other arguments can be passed via `kwargs`. A GPU is typically required to use GEARS, but we find it is possible to use on a CPU if you replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
+GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. The `eligible_regulators` arg behaves as expected and other GEARS arguments can be passed via `kwargs`. A GPU is typically required to use GEARS, but we find it is possible to use on a CPU with minor changes to GEARS source code: replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
 
 #### Backend 5: GeneFormer
 

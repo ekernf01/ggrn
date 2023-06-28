@@ -26,6 +26,13 @@ train.X = scipy.sparse.csr_matrix(train.X)
 network = load_networks.LightNetwork(files=["../accessory_data/human_promoters.parquet"])
 example_perturbations = [("Control,KLF8", "0,0"), ("GATA1", 0), ("GATA1,GFP", f"0,{str(np.nan)}"), ("empty_vector", np.nan)]
 
+# Make a smaller, but still realistic, dataset.
+perts_subsample = train.obs["perturbation"][0:100].unique().astype("str")
+perts_subsample = list(set(perts_subsample).intersection(set(train.var_names)))
+smaller_real_data = train[0:100, perts_subsample]
+smaller_real_data.uns["perturbed_and_measured_genes"] = perts_subsample
+smaller_real_data.uns["perturbed_but_not_measured_genes"] = []
+
 class TestModelRuns(unittest.TestCase):
     def test_make_GRN(self):
         self.assertIsInstance(
@@ -54,7 +61,7 @@ class TestModelRuns(unittest.TestCase):
         )    
 
     def test_fit_various_methods(self):
-        grn    = ggrn.GRN(train[0:100, 0:10].copy(), validate_immediately=False)
+        grn    = ggrn.GRN(smaller_real_data.copy())
         grn.extract_tf_activity(method = "tf_rna")
         for regression_method in [
                 "mean", 
@@ -83,10 +90,10 @@ class TestModelRuns(unittest.TestCase):
                 do_parallel=False, #catch bugs easier
             )
             x1 = grn.predict(perturbations = example_perturbations)  
-            x2 = grn.predict(perturbations = example_perturbations, starting_expression=train[0:len(example_perturbations), 0:10].copy())
+            x2 = grn.predict(perturbations = example_perturbations, starting_expression=train[0:len(example_perturbations), :].copy())
     
     def test_simple_fit_and_predict(self):
-        grn    = ggrn.GRN(train[0:100, 0:100].copy(), validate_immediately=False)
+        grn    = ggrn.GRN(smaller_real_data.copy())
         grn.extract_tf_activity(method = "tf_rna")
         grn.fit(
             method = "RidgeCVExtraPenalty", 
@@ -112,7 +119,7 @@ class TestModelRuns(unittest.TestCase):
         )
 
     def test_network_fit_and_predict(self):
-        grn    = ggrn.GRN(train[0:100, 0:100].copy(), network = network, validate_immediately=False)
+        grn    = ggrn.GRN(smaller_real_data, network = network)
         grn.extract_tf_activity(method = "tf_rna")
         grn.fit(
             method = "RidgeCVExtraPenalty", 
@@ -126,30 +133,8 @@ class TestModelRuns(unittest.TestCase):
             p, anndata.AnnData
         )
 
-    def test_simulation_works(self):
-        grn    = ggrn.GRN(train[0:100, 0:100].copy(), network = network, validate_immediately=False)
-        # network-based
-        p = grn.simulate_data(example_perturbations, effects = "uniform_on_provided_network", noise_sd=1)
-        self.assertTrue(ggrn.GRN(p, validate_immediately=True))
-        # trained model-based
-        grn.extract_tf_activity(method = "tf_rna")
-        grn.fit(
-            method = "RidgeCVExtraPenalty", 
-            cell_type_sharing_strategy = "identical", 
-            network_prior = "restrictive", 
-            pruning_strategy = "none", 
-            pruning_parameter = None, 
-        )
-        p1 = grn.simulate_data(example_perturbations, effects = "fitted_models")    
-        p2 = grn.simulate_data(example_perturbations, effects = "fitted_models")     
-        p3 = grn.simulate_data(example_perturbations, effects = "fitted_models", noise_sd=1)     
-        np.testing.assert_almost_equal(p1.X, p2.X)
-        self.assertTrue(ggrn.GRN(p1, validate_immediately=True))
-        self.assertTrue(ggrn.GRN(p2, validate_immediately=True))
-        self.assertTrue(ggrn.GRN(p3, validate_immediately=True))
-
     def test_pruned_fit_and_predict(self):
-        grn    = ggrn.GRN(train[0:100, 0:100].copy(), validate_immediately=False)
+        grn    = ggrn.GRN(smaller_real_data.copy())
         grn.extract_tf_activity(method = "tf_rna")
         grn.fit(
             method = "RidgeCVExtraPenalty", 
@@ -169,10 +154,13 @@ class TestModelRuns(unittest.TestCase):
 easy_simulated = anndata.AnnData(
     dtype=np.float32,
     obs = pd.DataFrame(
-        {"is_control": True,
-        "perturbation": "control",
-        "perturbation_type": "overexpression",
-        "cell_type": np.resize([1,2], 1000)},
+        {
+            "is_control": True,
+            "expression_level_after_perturbation": np.NaN,
+            "perturbation": "control",
+            "perturbation_type": "overexpression",
+            "cell_type": np.resize([1,2], 1000)
+        },
         index = [str(i) for i in range(1000)],
     ),
     var = pd.DataFrame(

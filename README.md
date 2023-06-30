@@ -1,6 +1,6 @@
 ## A declarative grammar of inference methods for gene regulatory networks
 
-GGRN is a set of Python modules that together allow users to flexibly combine traits of different inference methods for gene regulatory network inference. A full exposition is provided in the appendix of our preprint (not up yet). 
+GGRN is a set of Python modules that together allow users to flexibly combine traits of different inference methods for gene regulatory network inference. A full exposition is provided in `GGRN.md`, which is the raw source for the appendix from our  preprint (not up at time of writing). 
 
 ### Installation
 
@@ -48,19 +48,26 @@ With apologies, the `method` arg of the `grn.fit` is currently used to select bo
 
 #### Backend 1: steady state 
 
-The initial implementation requires steady-state matching; it ignores the passage of time. It offers flexible regression, rudimentary use of prior network structure, rudimentary cell type specificity, and predictions after just one step forward. It has no scheme for matching treatment samples to specific controls, no acyclic penalty, no low-dimensional structure, and no biological noise. It accepts the following inputs.
+The initial implementation requires steady-state matching; it ignores the passage of time. It offers flexible regression, feature extraction via geneformer, rudimentary use of prior network structure, rudimentary cell type specificity, and predictions after just one step forward. It has no scheme for matching treatment samples to specific controls, no acyclic penalty, no low-dimensional structure, and no biological noise. It accepts the following inputs.
 
 - `matching_method`: "steady_state"
 - `do_perturbations_persist`: ignored (fixed to True)
 - `prediction_timescale`: ignored (fixed to 1)
 - `method`: A method from sklearn, e.g. `KernelRidge`
 - `eligible_regulators`: Any list of gene names
-- `feature_extraction`: ignored (fixed to "mRNA")
+- `predict_self`: ignored (fixed to False)
+- `feature_extraction`: "mrna" or "geneformer". With "geneformer", you cannot use pruning or prior networks.
 - `low_dimensional_structure`: ignored (fixed to "none")
 - `low_dimensional_training`: ignored
 - `pruning_strategy`: "none", "prune_and_refit"
 - `network`: An edge list containing regulators, targets, weights (optional), and cell types (optional).  
 - `cell_type_sharing_strategy`: "identical", "distinct"
+
+Backend #1 is also the way GGRN can use GeneFormer. As recommended by the authors in [issue 44](https://huggingface.co/ctheodoris/Geneformer/discussions/44) and [issue 53](https://huggingface.co/ctheodoris/Geneformer/discussions/53), we obtain post-perturbation cell embeddings from GeneFormer, then we train simple regression models to convert the post-perturbation cell embeddings to gene expression. Note that "post-perturbation cell embeddings" could be constructed from training data in two ways. One option is to simply encode the expression data, since perturbation effects have already propagated. A second option is to use GeneFormer's typical tactic of altering the rank order to put overexpressed genes first and deleted genes last. Only the second option is available when making predictions, so we only use the second option during training.
+
+Because the GeneFormer-derived features are not interpretable as individual gene activities, it is not possible to constrain the list of eligible regulators in any way: `eligible_regulators`, `predict_self`, and `network` cannot be used.
+
+A GPU is required to use GeneFormer, but we find it is possible to use GeneFormer on a CPU if you replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
 
 #### Backend 2: DCD-FG 
 
@@ -71,6 +78,7 @@ We incorporate DCD-FG as a second backend for GGRN. We offer a thin wrapper with
 - `prediction_timescale`: ignored (fixed to 1)
 - `regression_method`: "mlplr" or "linear" or "poly"
 - `eligible_regulators`: ignored (all genes are used)
+- `predict_self`: ignored (fixed to False)
 - `feature_extraction`: ignored (fixed to "mRNA")
 - `low_dimensional_structure`: "none", "dynamics"
 - `low_dimensional_training`: ignored (fixed to "supervised")
@@ -88,6 +96,7 @@ As the third backend of GGRN, we implement an autoregressive model that explicit
 - `prediction_timescale`: positive int
 - `regression_method`: ignored (fixed to "linear")
 - `eligible_regulators`: ignored (all genes are used)
+- `predict_self`: ignored (fixed to True)
 - `feature_extraction`: ignored (fixed to "mRNA")
 - `low_dimensional_structure`: "none", "dynamics"
 - `low_dimensional_training`: "user", "svd", "supervised"
@@ -100,10 +109,6 @@ For more information on this model, see [here](http://github.com/ekernf01/ggrn_b
 #### Backend 4: GEARS
 
 GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. The `eligible_regulators` arg behaves as expected and other GEARS arguments can be passed via `kwargs`. A GPU is typically required to use GEARS, but we find it is possible to use on a CPU with minor changes to GEARS source code: replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
-
-#### Backend 5: GeneFormer
-
-GeneFormer is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GeneFormer in the GGRN software. As recommended by the authors in [issue 44](https://huggingface.co/ctheodoris/Geneformer/discussions/44), we obtain post-perturbation cell embeddings from GeneFormer, then we train a simple model to convert the post-perturbation cell embeddings to log fold changes. Arguments to GeneFormer's functions for cell perturbations can be passed via `kwargs`. A GPU is required to use GeneFormer, but we find it is possible to use on a CPU if you replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
 
 #### Adding a new backend
 

@@ -30,6 +30,7 @@ example_perturbations = [("Control,KLF8", "0,0"), ("GATA1", 0), ("GATA1,GFP", f"
 perts_subsample = train.obs["perturbation"][0:100].unique().astype("str")
 perts_subsample = list(set(perts_subsample).intersection(set(train.var_names)))
 smaller_real_data = train[0:100, perts_subsample]
+smaller_real_data.raw = smaller_real_data
 smaller_real_data.uns["perturbed_and_measured_genes"] = perts_subsample
 smaller_real_data.uns["perturbed_but_not_measured_genes"] = []
 
@@ -50,19 +51,19 @@ class TestModelRuns(unittest.TestCase):
         self.assertTrue(
             ggrn.GRN(train).check_perturbation_dataset() 
         )    
-    def test_extract_tf_activity(self):
+    def test_extract_features(self):
         grn    = ggrn.GRN(train, network = network)
         self.assertIsNone(
-            grn.extract_tf_activity(method = "tf_rna")
+            grn.extract_features()
         )    
         grn    = ggrn.GRN(train)
         self.assertIsNone(
-            grn.extract_tf_activity(method = "tf_rna")
+            grn.extract_features()
         )    
 
     def test_fit_various_methods(self):
         grn    = ggrn.GRN(smaller_real_data.copy())
-        grn.extract_tf_activity(method = "tf_rna")
+        grn.extract_features()
         for regression_method in [
                 "mean", 
                 "median", 
@@ -94,7 +95,7 @@ class TestModelRuns(unittest.TestCase):
     
     def test_simple_fit_and_predict(self):
         grn    = ggrn.GRN(smaller_real_data.copy())
-        grn.extract_tf_activity(method = "tf_rna")
+        grn.extract_features()
         grn.fit(
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "identical", 
@@ -120,7 +121,7 @@ class TestModelRuns(unittest.TestCase):
 
     def test_network_fit_and_predict(self):
         grn    = ggrn.GRN(smaller_real_data, network = network)
-        grn.extract_tf_activity(method = "tf_rna")
+        grn.extract_features()
         grn.fit(
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "identical", 
@@ -135,7 +136,7 @@ class TestModelRuns(unittest.TestCase):
 
     def test_pruned_fit_and_predict(self):
         grn    = ggrn.GRN(smaller_real_data.copy())
-        grn.extract_tf_activity(method = "tf_rna")
+        grn.extract_features()
         grn.fit(
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "identical", 
@@ -148,6 +149,20 @@ class TestModelRuns(unittest.TestCase):
             p, anndata.AnnData
         )
 
+    def test_pruned_fit_and_predict_with_geneformer_embeddings(self):
+        grn    = ggrn.GRN(smaller_real_data, feature_extraction = "geneformer")
+        grn.fit(
+            method = "RidgeCVExtraPenalty", 
+            cell_type_sharing_strategy = "identical", 
+            network_prior = "ignore", 
+            pruning_strategy = "prune_and_refit",
+            pruning_parameter = 5000, 
+            do_parallel=False,
+        )
+        p = grn.predict(example_perturbations, do_parallel=False)
+        self.assertIsInstance(
+            p, anndata.AnnData
+        )
 
 
 # Make some simulated data that ridge regressions should be able to get exactly right
@@ -164,15 +179,20 @@ easy_simulated = anndata.AnnData(
         index = [str(i) for i in range(1000)],
     ),
     var = pd.DataFrame(
+        {"highly_variable_rank": 1},
         index = ["g" + str(i) for i in range(5)],
     ),
     X = np.random.rand(1000, 5) - 0.5
 )
+easy_simulated.uns["perturbed_and_measured_genes"] = []
+easy_simulated.uns["perturbed_but_not_measured_genes"] = []
 # One gene is a linear function
 easy_simulated.X[:,0] = easy_simulated.X[:,1]*2 
 # Another is a cell-type-specific linear function
 easy_simulated.X[easy_simulated.obs["cell_type"]==1,4] = easy_simulated.X[easy_simulated.obs["cell_type"]==1,2]*2
 easy_simulated.X[easy_simulated.obs["cell_type"]==2,4] = easy_simulated.X[easy_simulated.obs["cell_type"]==2,3]*2
+easy_simulated.obs.loc["0","is_control"] = False
+easy_simulated.raw = easy_simulated.copy()
 # empty network should fit worse than correct network
 # correct network should fit roughly same as dense network
 empty_network   = load_networks.LightNetwork(df = pd.DataFrame(index=[], columns=["regulator", "target", "weight"]))
@@ -191,8 +211,8 @@ dense_network = load_networks.LightNetwork(df = pd.DataFrame({
 
 class TestModelExactlyRightOnEasySimulation(unittest.TestCase):
     def test_simple_dense(self):
-        grn = ggrn.GRN(easy_simulated, validate_immediately=False, eligible_regulators=easy_simulated.var_names)
-        grn.extract_tf_activity(method = "tf_rna")
+        grn = ggrn.GRN(easy_simulated, eligible_regulators=easy_simulated.var_names)
+        grn.extract_features()
         grn.fit(
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "identical", 
@@ -203,8 +223,8 @@ class TestModelExactlyRightOnEasySimulation(unittest.TestCase):
         np.testing.assert_almost_equal(p[:, "g0"].X.squeeze(), [0,2,4], decimal=1)
 
     def test_simple_dense_parallel_predict(self):
-        grn = ggrn.GRN(easy_simulated, validate_immediately=False, eligible_regulators=easy_simulated.var_names)
-        grn.extract_tf_activity(method = "tf_rna")
+        grn = ggrn.GRN(easy_simulated, eligible_regulators=easy_simulated.var_names)
+        grn.extract_features()
         grn.fit(
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "identical", 
@@ -215,8 +235,8 @@ class TestModelExactlyRightOnEasySimulation(unittest.TestCase):
         np.testing.assert_almost_equal(p[:, "g0"].X.squeeze(), [0,2,4], decimal=1)
 
     def test_network_dense(self):
-        grn = ggrn.GRN(easy_simulated, network = dense_network, validate_immediately=False, eligible_regulators=easy_simulated.var_names)
-        grn.extract_tf_activity(method = "tf_rna")
+        grn = ggrn.GRN(easy_simulated, network = dense_network, eligible_regulators=easy_simulated.var_names)
+        grn.extract_features()
         grn.fit(
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "identical", 
@@ -227,8 +247,8 @@ class TestModelExactlyRightOnEasySimulation(unittest.TestCase):
         np.testing.assert_almost_equal(p[:, "g0"].X.squeeze(), [0,2,4], decimal=1)
 
     def test_network_correct(self):
-        grn = ggrn.GRN(easy_simulated, network = correct_network, validate_immediately=False, eligible_regulators=easy_simulated.var_names)
-        grn.extract_tf_activity(method = "tf_rna")
+        grn = ggrn.GRN(easy_simulated, network = correct_network, eligible_regulators=easy_simulated.var_names)
+        grn.extract_features()
         grn.fit(
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "identical", 
@@ -239,8 +259,8 @@ class TestModelExactlyRightOnEasySimulation(unittest.TestCase):
         np.testing.assert_almost_equal(p[:, "g0"].X.squeeze(), [0,2,4], decimal=1)
 
     def test_network_empty(self):
-        grn = ggrn.GRN(easy_simulated, network = empty_network, validate_immediately=False, eligible_regulators=easy_simulated.var_names)
-        grn.extract_tf_activity(method = "tf_rna")
+        grn = ggrn.GRN(easy_simulated, network = empty_network, eligible_regulators=easy_simulated.var_names)
+        grn.extract_features()
         grn.fit(
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "identical", 
@@ -251,8 +271,8 @@ class TestModelExactlyRightOnEasySimulation(unittest.TestCase):
         np.testing.assert_almost_equal(p[:, "g0"].X.squeeze(), [0,0,0], decimal=1)
 
     def test_ct_specific(self):
-        grn = ggrn.GRN(easy_simulated, validate_immediately=False, eligible_regulators=easy_simulated.var_names)
-        grn.extract_tf_activity(method = "tf_rna")
+        grn = ggrn.GRN(easy_simulated, eligible_regulators=easy_simulated.var_names)
+        grn.extract_features()
         grn.fit(
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "distinct", 

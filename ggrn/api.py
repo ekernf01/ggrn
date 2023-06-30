@@ -23,50 +23,39 @@ try:
 except ImportError:
     print("GEARS is not installed, and related models will not be available.")
 try:
-    from geneformer import InSilicoPerturber, TranscriptomeTokenizer
-except ImportError:
-    print("geneformer is not installed, and related models will not be available.")
-try:
     import ggrn_backend3.api as autoregressive
 except ImportError:
     print("autoregressive backend is not installed, and related models will not be available.")
+try:
+    from geneformer_embeddings import geneformer_embeddings
+except ImportError:
+    print("GeneFormer backend is not installed, and related models will not be available.")
 
 # These govern expectations about data format for regulatory networks and perturbation data.
 import load_networks
 import load_perturbations
 
-
-def isnan_safe(x):
-    """
-    A safe way to check if an arbitrary object is np.nan. Useful because when we save metadata to csv, it will
-    be read as NaN even if it was written as null. 
-    """
-    try:
-        return np.isnan(x)
-    except:
-        return False
-
 class GRN:
     """
     Flexible inference of gene regulatory network models.
     """
-    
     def __init__(
         self, train: anndata.AnnData, 
         network: load_networks.LightNetwork = None, 
-        eligible_regulators = None,
-        validate_immediately = True
+        eligible_regulators: list = None,
+        validate_immediately: bool = True,
+        feature_extraction: str = "mrna",
     ):
         """Create a GRN object.
 
         Args:
             train (anndata.AnnData): Training data. Should conform to the requirements in load_perturbations.check_perturbation_dataset().
             network (pd.DataFrame, optional): LightNetwork object containing prior knowledge about regulators and targets.
-            eligible_regulators (List, optional): List of gene names that are allowed to be regulators.
-        """
-        if eligible_regulators is None:
-            eligible_regulators = train.var_names
+            eligible_regulators (List, optional): List of gene names that are allowed to be regulators. Defaults to all genes.
+            feature_extraction (str, optional): How to extract features. Defaults to "tf_rna", which uses the mRNA level of the TF. You 
+                can also specify "geneformer" to use GeneFormer to extract cell embeddings. 
 
+        """
         self.train = train 
         try:
             self.train.X = self.train.X.toarray()
@@ -74,247 +63,17 @@ class GRN:
             pass
         assert network is None or type(network)==load_networks.LightNetwork
         self.network = network 
-        # Make sure regulators are observed
-        self.eligible_regulators = [g for g in eligible_regulators if g in train.var_names]
         self.models = [None for _ in self.train.var_names]
         self.training_args = {}
         self.features = None
+        self.feature_extraction = feature_extraction
+        self.eligible_regulators = eligible_regulators
         if validate_immediately:
             assert self.check_perturbation_dataset()
+        if self.feature_extraction.lower() in {"geneformer"}:
+            assert self.eligible_regulators is None, "You may not constrain the set of regulators when using GeneFormer feature extraction."
 
-    def check_perturbation_dataset(self):
-        return load_perturbations.check_perturbation_dataset(ad=self.train)
-
-    def extract_tf_activity(self, train: anndata.AnnData = None, in_place: bool = True, method = "mrna"):
-        """Create a feature matrix where each row matches a row in self.train and
-        each column represents activity of the corresponding TF in self.eligible_regulators.
-
-        Args:
-            train: (anndata.AnnData, optional). Expression data to use in feature extraction. Defaults to self.train.
-            in_place (bool, optional): If True (default), put results in self.features. Otherwise, return results as a matrix. 
-            method (str, optional): How to extract features. Defaults to "tf_rna", which uses the mRNA level of the TF.
-        """
-        if train is None:
-            train = self.train # shallow copy is best here
-
-        if method.lower() in {"tf_mrna", "tf_rna", "mrna"}:
-            features = train[:,self.eligible_regulators].X.copy()
-            for int_i, i in enumerate(train.obs.index):
-                # Expected format: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
-                pert_genes = train.obs.loc[i, "perturbation"].split(",")
-                pert_exprs = [float(f) for f in str(train.obs.loc[i, "expression_level_after_perturbation"]).split(",")]
-                assert len(pert_genes) == len(pert_exprs), f"Malformed perturbation in sample {i}: {train.obs[i,:]}"
-                for pert_idx in range(len(pert_genes)):
-                    # If perturbation label is not a gene, leave it unperturbed.
-                    # If expression after perturbation is nan, leave it unperturbed.
-                    # This behavior is used to handle controls. 
-                    if pert_genes[pert_idx] not in self.eligible_regulators or np.isnan(pert_exprs[pert_idx]):
-                        pass
-                    else:
-                        column = self.eligible_regulators.index(pert_genes[pert_idx])
-                        features[int_i, column] = pert_exprs[pert_idx]
-        else:
-            raise NotImplementedError("Only 'mrna' is available so far for feature extraction methods.")
-        
-        if in_place:
-            self.features = features # shallow copy is best here too
-        else:
-            return features
-
-    def fit_models_parallel(self, FUN, network = None, do_parallel: bool = True, verbose: bool = False):
-        if network is None:
-            network = self.network
-        if do_parallel:     
-                m = Parallel(n_jobs=cpu_count()-1, verbose = verbose, backend="loky")(
-                    delayed(apply_supervised_ml_one_gene)(
-                        train_obs = self.train.obs,
-                        target_expr = self.train.X[:,i],
-                        features = self.features,
-                        network = network,
-                        training_args = self.training_args,
-                        eligible_regulators = self.eligible_regulators, 
-                        FUN=FUN, 
-                        target = self.train.var_names[i],
-                    )
-                    for i in range(len(self.train.var_names))
-                )
-                return m
-        else:
-            return [
-                apply_supervised_ml_one_gene(
-                    train_obs = self.train.obs,
-                    target_expr = self.train.X[:,i],
-                    features = self.features,
-                    network = network,
-                    training_args = self.training_args,
-                    eligible_regulators = self.eligible_regulators, 
-                    FUN=FUN, 
-                    target = self.train.var_names[i],
-                )
-                for i in range(len(self.train.var_names))
-            ]
-
-    def fit_with_or_without_pruning(
-        self, 
-        FUN, 
-        network_prior: str, 
-        pruning_strategy: str, 
-        pruning_parameter: int,
-        do_parallel: bool,
-        verbose:int = 1  ,          
-    ):
-        """Apply a supervised ML method to predict target expression from TF activity.
-
-        Args:
-            FUN (function): should accept inputs X,y and return a fitted model, sklearn-style, with a .predict method.
-            verbose (int): passes to joblib.Parallel. https://joblib.readthedocs.io/en/latest/parallel.html
-            network_prior (str): See args for 'fit' method
-            pruning_strategy (str): See args for 'fit' method
-            pruning_parameter (int): See args for 'fit' method
-            do_parallel (bool): If True, use joblib parallelization to fit models. 
-            verbose (int, optional): Passed to joblib.Parallel. Defaults to 1.
-
-        Returns:
-            No return value. Instead, this modifies self.models.
-        """
-
-        if pruning_strategy == "prune_and_refit":
-            print("Fitting")
-            self.models = self.fit_models_parallel(
-                FUN = FUN, 
-                network = None, 
-                do_parallel = do_parallel, 
-                verbose = verbose,
-            )
-            print("Pruning")
-            chunks = []
-            for i in range(len(self.train.var_names)):
-                if self.training_args["cell_type_sharing_strategy"] == "distinct":
-                    for cell_type in self.train.obs[self.training_args["cell_type_labels"]].unique():
-                        try:
-                            coef = self.models[i][cell_type].coef_.squeeze()
-                        except Exception as e:
-                            raise ValueError(f"Unable to extract coefficients. Pruning may not work with this type of regression model. Error message: {repr(e)}")
-
-                        chunks.append(
-                            pd.DataFrame(
-                                    {
-                                        "regulator": get_regulators(
-                                                eligible_regulators = self.eligible_regulators, 
-                                                predict_self = self.training_args["predict_self"], 
-                                                network_prior = network_prior,
-                                                target = self.train.var_names[i], 
-                                                network = self.network,
-                                                cell_type = cell_type,
-                                            ), 
-                                        "target": self.train.var_names[i], 
-                                        "weight": coef,
-                                        "cell_type": cell_type,
-                                    } 
-                                )
-                            )
-                elif self.training_args["cell_type_sharing_strategy"] == "identical":
-                    chunks.append(
-                        pd.DataFrame(
-                                {
-                                    "regulator": get_regulators(
-                                            eligible_regulators = self.eligible_regulators, 
-                                            predict_self = self.training_args["predict_self"], 
-                                            network_prior = network_prior,
-                                            target = self.train.var_names[i], 
-                                            network = self.network,
-                                            ), 
-                                    "target": self.train.var_names[i], 
-                                    "weight": self.models[i].coef_.squeeze(),
-                                } 
-                            )
-                        )
-                else:
-                    raise NotImplementedError("Invalid value of 'cell_type_sharing_strategy' ")
-
-            pruned_network = pd.concat(chunks)
-            pruned_network = pruned_network.query("regulator != 'NO_REGULATORS'")
-            pruned_network.loc[:, "abs_weight"] = np.abs(pruned_network["weight"])
-            pruned_network = pruned_network.nlargest(int(pruning_parameter), "abs_weight")
-            del pruned_network["abs_weight"]
-            print("Re-fitting with just features that survived pruning")
-            self.network = load_networks.LightNetwork(df=pruned_network)
-            self.training_args["network_prior"] = "restrictive"
-            self.models = self.fit_models_parallel(
-                FUN = FUN, 
-                network = None, 
-                do_parallel = do_parallel, 
-                verbose = verbose,
-            )
-        elif pruning_strategy.lower() == "none":
-            print("Fitting")
-            self.models = self.fit_models_parallel(
-                FUN = FUN, 
-                network = None, 
-                do_parallel = do_parallel, 
-                verbose = verbose,
-            )
-        else:
-            raise NotImplementedError(f"pruning_strategy should be one of 'none' or 'prune_and_refit'; got {pruning_strategy} ")
-
-    def save_models(self, folder_name:str):
-        """Save all the regression models to a folder via joblib.dump (one file per gene).
-
-        Args:
-            folder_name (str): Where to save files.
-        """
-        os.makedirs(folder_name, exist_ok=True)
-        if self.training_args["method"].startswith("DCDFG"):
-            raise NotImplementedError(f"Parameter saving/loading is not supported for DCDFG")
-        elif self.training_args["method"].startswith("docker"):
-            raise NotImplementedError(f"Parameter saving/loading is not supported for docker")
-        elif self.training_args["method"].startswith("GeneFormer"):
-            raise NotImplementedError(f"Parameter saving/loading is not supported for GeneFormer")
-        elif self.training_args["method"].startswith("autoregressive"):
-            raise NotImplementedError(f"Parameter saving/loading is not supported for autoregressive")
-        elif self.training_args["method"].startswith("GEARS"):
-            self.models.save_model(os.path.join(folder_name, "gears"))
-        else:
-            for i,target in enumerate(self.train.var_names):
-                dump(self.models[i], os.path.join(folder_name, f'{target}.joblib'))
         return
-
-    def validate_method(self, method):
-        assert type(method)==str, f"method arg must be a str; got {type(method)}"
-        allowed_methods = [
-            "mean",
-            "median",
-            "GradientBoostingRegressor",
-            "ExtraTreesRegressor",
-            "KernelRidge",
-            "ElasticNetCV",
-            "LarsCV",
-            "OrthogonalMatchingPursuitCV",
-            "ARDRegression",
-            "BayesianRidge",
-            "LassoCV",
-            "LassoLarsIC",
-            "RidgeCV",
-            "RidgeCVExtraPenalty",
-        ]
-        allowed_prefixes = [
-            "autoregressive",
-            "GeneFormer",
-            "docker",
-            "GEARS",
-            "DCDFG",
-        ]
-        for p in allowed_prefixes:
-            if method.startswith(p):
-                return
-        for p in allowed_methods:
-            if method == p:
-                return
-        print("Allowed prefixes:", flush=True)
-        print(allowed_prefixes,    flush=True)
-        print("Allowed methods:",  flush=True)
-        print(allowed_methods,     flush=True)
-        raise ValueError("method must start with an allowed prefix or must equal an allowed value (these will be printed to stdout).")  
 
     def fit(
         self,
@@ -322,10 +81,12 @@ class GRN:
         confounders: list = [], 
         cell_type_sharing_strategy: str = "identical",   
         cell_type_labels: str = None,
+        eligible_regulators: list = None,
         network_prior: str = None,    
         pruning_strategy: str = "none", 
         pruning_parameter: str = None,          
         matching_method: str = "steady_state",
+        feature_extraction: str = "mrna",
         low_dimensional_structure: str = None,
         low_dimensional_training: str = None,
         S: str = None, 
@@ -341,6 +102,7 @@ class GRN:
             cell_type_sharing_strategy (str, optional): Whether to fit one model across all training data ('identical') 
                 or fit separate ones ('distinct'). Defaults to "distinct".
             cell_type_labels (str): Name of column in self.train.obs to use for cell type labels.
+            eligible_regulators (List, optional): List of gene names that are allowed to be regulators. Defaults to all genes.
             network_prior (str, optional): How to incorporate user-provided network structure. 
                 - "ignore": don't use it. 
                 - "restrictive": allow only user-specified regulators for each target.
@@ -355,7 +117,11 @@ class GRN:
                 "random" (choose a random control), or 
                 "steady_state" (match each observation with itself).
             regression_method (str): Currently only allows "linear".
-            low_dimensional_structure (str): "none" or "RGQ". If "RGQ", dynamics will be modeled in a linear subspace. See also low_dimensional_training.
+            feature_extraction (str): Method of feature extraction. "mrna" or "geneformer". 
+            low_dimensional_structure (str) "none" or "dynamics" or "RGQ". See also low_dimensional_training.
+                - If "none", dynamics will be modeled using the original data.
+                - If "dynamics", dynamics will be modeled in a latent space. 
+                - "RGQ" is a deprecated option identical to "dynamics".
             low_dimensional_training (str): "SVD" or "fixed" or "supervised". How to learn the linear subspace. 
                 If "SVD", perform an SVD on the data.
                 If "fixed", use a user-provided projection matrix.
@@ -365,12 +131,15 @@ class GRN:
             test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.
             kwargs: Passed to DCDFG or GEARS. See help(dcdfg_wrapper.DCDFGWrapper.train). 
         """
+        if feature_extraction.lower() == "geneformer":
+            assert predict_self, "GGRN cannot exclude autoregulation when using geneformer for feature extraction."
         if network_prior is None:
             network_prior = "ignore" if self.network is None else "restrictive"
         if network_prior != "ignore":
-            assert self.network is not None
+            assert self.network is not None, "You must provide a network unless network_prior is 'ignore'."
+            assert feature_extraction.lower() in {"tf_mrna", "mrna", "rna", "tf_rna"},  "Only simple feature extraction is compatible with prior network structure."
         if self.features is None:
-            self.extract_tf_activity(train = self.train, in_place = True)
+            self.extract_features(train = self.train, in_place = True)
         self.validate_method(method)
         # Save some training args to later ensure prediction is consistent with training.
         self.training_args["confounders"]                = confounders
@@ -378,6 +147,7 @@ class GRN:
         self.training_args["cell_type_sharing_strategy"] = cell_type_sharing_strategy
         self.training_args["cell_type_labels"]           = cell_type_labels
         self.training_args["predict_self"]               = predict_self
+        self.training_args["feature_extraction"]         = feature_extraction
         self.training_args["method"]                     = method
         # Check that the cell types match between the network and the expression data
         if network_prior != "ignore" and self.training_args["cell_type_sharing_strategy"] != 'identical':
@@ -421,8 +191,6 @@ class GRN:
             )
             autoregressive_model.train()      
             self.models = autoregressive_model
-        elif method.startswith("GeneFormer"):
-            raise NotImplementedError("Sorry, the GeneFormer interface is still in progress.")
         elif method.startswith("SCFormer"):
             raise NotImplementedError("Sorry, the SCFormer interface is still in progress.")
         elif method.startswith("docker"):
@@ -679,6 +447,7 @@ class GRN:
             noise_sd (bool): sd of the variable e described above. Defaults to estimates from the fitted models.
             seed (int): RNG seed.
         """
+        # Check inputs
         if type(self.models)==list and not self.models:
             raise RuntimeError("No fitted models found. You may not call GRN.predict() until you have called GRN.fit().")
         assert type(perturbations)==list, "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
@@ -686,19 +455,20 @@ class GRN:
         assert all(len(p)==2       for p in perturbations), "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
         assert all(type(p[0])==str for p in perturbations), "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
         
-        # Set up AnnData object for output
-        columns_to_transfer = self.training_args["confounders"].copy()
+        # Set up AnnData object in the right shape to contain output
+        columns_to_transfer = self.training_args["confounders"].copy() + ["perturbation_type"]
         if self.training_args["cell_type_sharing_strategy"] != "identical":
             columns_to_transfer.append(self.training_args["cell_type_labels"])
         predictions = _prediction_prep(
             nrow = len(perturbations),
             columns_to_transfer = columns_to_transfer,
-            var = self.train.var.copy()
+            var = self.train.var.copy(),
         )
 
-        # Set up AnnData for starting expression: the state of the observations prior to perturbation. 
+        # Set up AnnData to contain starting expression: the state of the observations prior to perturbation. 
         if starting_expression is None:
             starting_expression = predictions.copy()
+            starting_expression.raw = predictions.copy()
             # We allow users to select a subset of controls using a prefix, e.g. GFP overexpression instead of DMSO. 
             if control_subtype is None or isnan_safe(control_subtype):
                 all_controls = self.train.obs["is_control"] 
@@ -710,7 +480,7 @@ class GRN:
                     print(self.train.obs.head())
                     raise ValueError(f"No controls found for control_subtype {control_subtype}.")
             all_controls = np.where(all_controls)[0]
-            # Select all starting expression and metadata from the aforementioned controls
+            # Copy all starting expression and metadata from the aforementioned controls
             starting_metadata_one   = self.train.obs.iloc[[all_controls[0]], :].copy()
             def toArraySafe(X):
                 try:
@@ -718,13 +488,15 @@ class GRN:
                 except:
                     return X
             starting_expression_one = toArraySafe(self.train.X[  all_controls,:]).mean(axis=0, keepdims = True)
+            starting_expression_one_raw = toArraySafe(self.train.raw.X[  all_controls,:]).mean(axis=0, keepdims = True)
             for i in range(len(perturbations)):
                 idx_str = str(i)
                 starting_expression.X[i, :] = starting_expression_one.copy()
+                starting_expression.raw.X[i, :] = starting_expression_one_raw.copy()
                 for col in columns_to_transfer:
-                    predictions.obs.loc[idx_str, col] = starting_metadata_one.loc[:, col].values
-        
-        # Enforce that starting_expression has correct type, shape, metadata contents
+                    starting_expression.obs.loc[idx_str, col] = starting_metadata_one.loc[:,col][0]
+
+        # Enforce that starting_expression has correct type, shape, metadata fields
         assert type(starting_expression) == anndata.AnnData, f"starting_expression must be anndata; got {type(starting_expression)}"
         assert starting_expression.obs.shape[0] == len(perturbations), "Starting expression must be None or an AnnData with one obs per perturbation."
         assert all(c in set(starting_expression.obs.columns) for c in columns_to_transfer), f"starting_expression must be accompanied by these metadata fields: \n{'  '.join(columns_to_transfer)}"
@@ -749,9 +521,12 @@ class GRN:
             predictions.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[i][1]
             starting_expression.obs.loc[idx_str, "perturbation"]                        = perturbations[i][0]
             starting_expression.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[i][1]
-        starting_features = self.extract_tf_activity(train = starting_expression, 
-                                                     in_place=False).copy()
             
+        starting_features = self.extract_features(
+            train = starting_expression, 
+            in_place=False, 
+        ).copy()        
+
         # Now predict the expression
         if self.training_args["method"].startswith("autoregressive"):
             predictions = self.models.predict(perturbations = perturbations, starting_expression = starting_expression)
@@ -835,6 +610,248 @@ class GRN:
                         raise ValueError("Noise standard deviation could not be extracted from trained models.")
                 predictions.X[:,i] = predictions.X[:,i] + np.random.standard_normal(len(predictions.X[:,i]))*noise_sd
         return predictions
+
+    def extract_features(self, train: anndata.AnnData = None, in_place: bool = True):
+        """Create a feature matrix where each row matches a row in self.train and
+        each column represents a feature in self.eligible_regulators.
+
+        Args:
+            train: (anndata.AnnData, optional). Expression data to use in feature extraction. Defaults to self.train.
+            in_place (bool, optional): If True (default), put results in self.features. Otherwise, return results as a matrix. 
+        """
+        if train is None:
+            train = self.train # shallow copy is best here
+
+        if self.feature_extraction.lower() in {"tf_mrna", "tf_rna", "mrna"}:
+            if self.eligible_regulators is None:
+                self.eligible_regulators = train.var_names
+            self.eligible_regulators = [g for g in self.eligible_regulators if g in train.var_names]
+            features = train[:,self.eligible_regulators].X.copy()
+            for int_i, i in enumerate(train.obs.index):
+                # Expected format: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
+                pert_genes = train.obs.loc[i, "perturbation"].split(",")
+                pert_exprs = [float(f) for f in str(train.obs.loc[i, "expression_level_after_perturbation"]).split(",")]
+                assert len(pert_genes) == len(pert_exprs), f"Malformed perturbation in sample {i}: {train.obs[i,:]}"
+                for pert_idx in range(len(pert_genes)):
+                    # If perturbation label is not a gene, leave it unperturbed.
+                    # If expression after perturbation is nan, leave it unperturbed.
+                    # This behavior is used to handle controls. 
+                    if pert_genes[pert_idx] not in self.eligible_regulators or np.isnan(pert_exprs[pert_idx]):
+                        pass
+                    else:
+                        column = self.eligible_regulators.index(pert_genes[pert_idx])
+                        features[int_i, column] = pert_exprs[pert_idx]
+        elif self.feature_extraction.lower() in {"geneformer"}:
+            self.eligible_regulators = list(range(256))
+            features = geneformer_embeddings.get_geneformer_perturbed_cell_embeddings(
+                adata_train = train,
+                assume_unrecognized_genes_are_controls = True,
+                apply_perturbation_explicitly = True,
+            )
+        else:
+            raise NotImplementedError("Only 'mrna' is available so far for feature extraction methods.")
+        if in_place:
+            self.features = features # shallow copy is best here too
+        else:
+            return features
+
+    def fit_models_parallel(self, FUN, network = None, do_parallel: bool = True, verbose: bool = False):
+        if network is None:
+            network = self.network
+        if do_parallel:     
+                m = Parallel(n_jobs=cpu_count()-1, verbose = verbose, backend="loky")(
+                    delayed(apply_supervised_ml_one_gene)(
+                        train_obs = self.train.obs,
+                        target_expr = self.train.X[:,i],
+                        features = self.features,
+                        network = network,
+                        training_args = self.training_args,
+                        eligible_regulators = self.eligible_regulators, 
+                        FUN=FUN, 
+                        target = self.train.var_names[i],
+                    )
+                    for i in range(len(self.train.var_names))
+                )
+                return m
+        else:
+            return [
+                apply_supervised_ml_one_gene(
+                    train_obs = self.train.obs,
+                    target_expr = self.train.X[:,i],
+                    features = self.features,
+                    network = network,
+                    training_args = self.training_args,
+                    eligible_regulators = self.eligible_regulators, 
+                    FUN=FUN, 
+                    target = self.train.var_names[i],
+                )
+                for i in range(len(self.train.var_names))
+            ]
+
+    def fit_with_or_without_pruning(
+        self, 
+        FUN, 
+        network_prior: str, 
+        pruning_strategy: str, 
+        pruning_parameter: int,
+        do_parallel: bool,
+        verbose:int = 1  ,          
+    ):
+        """Apply a supervised ML method to predict target expression from TF activity.
+
+        Args:
+            FUN (function): should accept inputs X,y and return a fitted model, sklearn-style, with a .predict method.
+            verbose (int): passes to joblib.Parallel. https://joblib.readthedocs.io/en/latest/parallel.html
+            network_prior (str): See args for 'fit' method
+            pruning_strategy (str): See args for 'fit' method
+            pruning_parameter (int): See args for 'fit' method
+            do_parallel (bool): If True, use joblib parallelization to fit models. 
+            verbose (int, optional): Passed to joblib.Parallel. Defaults to 1.
+
+        Returns:
+            No return value. Instead, this modifies self.models.
+        """
+
+        if pruning_strategy == "prune_and_refit":
+            print("Fitting")
+            self.models = self.fit_models_parallel(
+                FUN = FUN, 
+                network = None, 
+                do_parallel = do_parallel, 
+                verbose = verbose,
+            )
+            print("Pruning")
+            chunks = []
+            for i in range(len(self.train.var_names)):
+                if self.training_args["cell_type_sharing_strategy"] == "distinct":
+                    for cell_type in self.train.obs[self.training_args["cell_type_labels"]].unique():
+                        try:
+                            coef = self.models[i][cell_type].coef_.squeeze()
+                        except Exception as e:
+                            raise ValueError(f"Unable to extract coefficients. Pruning may not work with this type of regression model. Error message: {repr(e)}")
+
+                        chunks.append(
+                            pd.DataFrame(
+                                    {
+                                        "regulator": get_regulators(
+                                                eligible_regulators = self.eligible_regulators, 
+                                                predict_self = self.training_args["predict_self"], 
+                                                network_prior = network_prior,
+                                                target = self.train.var_names[i], 
+                                                network = self.network,
+                                                cell_type = cell_type,
+                                            ), 
+                                        "target": self.train.var_names[i], 
+                                        "weight": coef,
+                                        "cell_type": cell_type,
+                                    } 
+                                )
+                            )
+                elif self.training_args["cell_type_sharing_strategy"] == "identical":
+                    chunks.append(
+                        pd.DataFrame(
+                                {
+                                    "regulator": get_regulators(
+                                            eligible_regulators = self.eligible_regulators, 
+                                            predict_self = self.training_args["predict_self"], 
+                                            network_prior = network_prior,
+                                            target = self.train.var_names[i], 
+                                            network = self.network,
+                                            ), 
+                                    "target": self.train.var_names[i], 
+                                    "weight": self.models[i].coef_.squeeze(),
+                                } 
+                            )
+                        )
+                else:
+                    raise NotImplementedError("Invalid value of 'cell_type_sharing_strategy' ")
+
+            pruned_network = pd.concat(chunks)
+            pruned_network = pruned_network.query("regulator != 'NO_REGULATORS'")
+            pruned_network.loc[:, "abs_weight"] = np.abs(pruned_network["weight"])
+            pruned_network = pruned_network.nlargest(int(pruning_parameter), "abs_weight")
+            del pruned_network["abs_weight"]
+            print("Re-fitting with just features that survived pruning")
+            self.network = load_networks.LightNetwork(df=pruned_network)
+            self.training_args["network_prior"] = "restrictive"
+            self.models = self.fit_models_parallel(
+                FUN = FUN, 
+                network = None, 
+                do_parallel = do_parallel, 
+                verbose = verbose,
+            )
+        elif pruning_strategy.lower() == "none":
+            print("Fitting")
+            self.models = self.fit_models_parallel(
+                FUN = FUN, 
+                network = None, 
+                do_parallel = do_parallel, 
+                verbose = verbose,
+            )
+        else:
+            raise NotImplementedError(f"pruning_strategy should be one of 'none' or 'prune_and_refit'; got {pruning_strategy} ")
+
+    def save_models(self, folder_name:str):
+        """Save all the regression models to a folder via joblib.dump (one file per gene).
+
+        Args:
+            folder_name (str): Where to save files.
+        """
+        os.makedirs(folder_name, exist_ok=True)
+        if self.training_args["method"].startswith("DCDFG"):
+            raise NotImplementedError(f"Parameter saving/loading is not supported for DCDFG")
+        elif self.training_args["method"].startswith("docker"):
+            raise NotImplementedError(f"Parameter saving/loading is not supported for docker")
+        elif self.training_args["method"].startswith("GeneFormer"):
+            raise NotImplementedError(f"Parameter saving/loading is not supported for GeneFormer")
+        elif self.training_args["method"].startswith("autoregressive"):
+            raise NotImplementedError(f"Parameter saving/loading is not supported for autoregressive")
+        elif self.training_args["method"].startswith("GEARS"):
+            self.models.save_model(os.path.join(folder_name, "gears"))
+        else:
+            for i,target in enumerate(self.train.var_names):
+                dump(self.models[i], os.path.join(folder_name, f'{target}.joblib'))
+        return
+
+    def validate_method(self, method):
+        assert type(method)==str, f"method arg must be a str; got {type(method)}"
+        allowed_methods = [
+            "mean",
+            "median",
+            "GradientBoostingRegressor",
+            "ExtraTreesRegressor",
+            "KernelRidge",
+            "ElasticNetCV",
+            "LarsCV",
+            "OrthogonalMatchingPursuitCV",
+            "ARDRegression",
+            "BayesianRidge",
+            "LassoCV",
+            "LassoLarsIC",
+            "RidgeCV",
+            "RidgeCVExtraPenalty",
+        ]
+        allowed_prefixes = [
+            "autoregressive",
+            "GeneFormer",
+            "docker",
+            "GEARS",
+            "DCDFG",
+        ]
+        for p in allowed_prefixes:
+            if method.startswith(p):
+                return
+        for p in allowed_methods:
+            if method == p:
+                return
+        print("Allowed prefixes:", flush=True)
+        print(allowed_prefixes,    flush=True)
+        print("Allowed methods:",  flush=True)
+        print(allowed_methods,     flush=True)
+        raise ValueError("method must start with an allowed prefix or must equal an allowed value (these will be printed to stdout).")  
+
+    def check_perturbation_dataset(self):
+        return load_perturbations.check_perturbation_dataset(ad=self.train)
 
 
     def predict_parallel(self, features, cell_type_labels, network = None, do_parallel = True): 
@@ -1045,7 +1062,6 @@ def get_regulators(eligible_regulators, predict_self, network_prior: str, target
     else:
         return selected_features
 
-
 def _prediction_prep(nrow: int, columns_to_transfer: list, var: pd.DataFrame) -> anndata.AnnData:
     """Prior to generating predictions, set up an empty container in the right shape.
 
@@ -1064,10 +1080,20 @@ def _prediction_prep(nrow: int, columns_to_transfer: list, var: pd.DataFrame) ->
         obs = pd.DataFrame(
             {
                 "perturbation":"NA", 
-                "expression_level_after_perturbation": -999
+                "expression_level_after_perturbation": -999, 
             }, 
             index = [str(i) for i in range(nrow)],
             columns = ["perturbation", "expression_level_after_perturbation"] + columns_to_transfer,
         )
     )
     return predictions
+
+def isnan_safe(x):
+    """
+    A safe way to check if an arbitrary object is np.nan. Useful because when we save metadata to csv, it will
+    be read as NaN even if it was written as null. 
+    """
+    try:
+        return np.isnan(x)
+    except:
+        return False

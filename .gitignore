@@ -1,2 +1,5 @@
 *.pyc
 wandb
+geneformer_loom_data
+tokenized_data
+

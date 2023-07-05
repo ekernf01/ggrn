@@ -30,7 +30,7 @@ grn.extract_features(method = "tf_rna")
 grn.fit(
     method = "LassoCV",
     cell_type_sharing_strategy = "identical",
-    network_prior = "restrictive",
+    network_prior = "ignore",
     matching_method = "steady_state",
     predict_self = False,   
     kwargs = {},    # Passed to the backend

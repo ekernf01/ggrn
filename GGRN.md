@@ -6,7 +6,7 @@ This grammar describes many combinations of features that are not yet implemente
 
 #### Notation 
 
-Let $X_i(P, T)$ be RNA abundance in sample $i$, at time $T$, where genes in the set $P$ were overexpressed continuously starting at $T=0$. A natural approach is to fit $F$ such that $X_i(P, T) - F(X_i(P, T-\delta T))$. 
+Let $X_i(P, T)$ be RNA abundance in sample $i$, at time $T$, where genes in the set $P$ were overexpressed continuously starting at $T=0$. A natural approach is to fit $F$ such that $X_i(P, T) \approx F(X_i(P, T-\delta T))$. 
 
 #### Matching
 
@@ -24,13 +24,13 @@ We formalize the choice of regression method with a keyword argument `regression
 
 Many transcription factors are post-transcriptionally regulated, and the mRNA level may not be the best proxy for TF activity. Thus, although it is still common to use mRNA levels, there are other possible choices of features used in training the model $F$. GeneFormer uses a 256-dimensional latent space representation for each cell, and GEARS uses a 64-dimensional latent space representation. PRESCIENT uses a 30- or 50-dimensional principal subspace embedding. ARMADA augments each log-normalized expression profile $X$ with additional coordinates $A$ representing TF activity. $A$ is estimated by fitting $X_{ij} \approx \sum_m N_{jm}A_{mi}$, where $N_{jm}$ counts how many times motif $m$ occurs near the promoter of gene $j$. $N_{jm}$ is constructed from promoter annotations, motif databases, and DNA sequence; it does not depend on expression data except through possibly-novel promoter annotations. 
 
-For mRNA levels, the effect of genetic perturbation can be directly measured (although knockouts may have nonzero mRNA levels despite a complete loss of function). For derived features, each model must specify how genetic perturbations affects the features. GeneFormer uses a tokenized representation of each cell which orders genes according to a measure of expression anomaly over baseline; for perturbations, GeneFormer places overexpressed genes first and deleted genes last, then generates perturbed cell embeddings. GEARS learns gene embeddings during training, using latent space arithmetic to alter embeddings of perturbed cells. PRESCIENT projects into the principal subspace after altering z-scores for perturbed genes. ARMADA does not simulate perturbations, but ARMADA has uniquely interpretable motif activity scores and perturbations could be applied to individual motif activities. 
+For mRNA levels, the effect of genetic perturbation can be directly measured (although knockouts may have nonzero mRNA levels despite a complete loss of function). For more complex feature extraction, each model must specify how genetic perturbations affects the features. GeneFormer uses a tokenized representation of each cell which orders genes according to a measure of expression anomaly over baseline; for perturbations, GeneFormer places overexpressed genes first and deleted genes last, then generates perturbed cell embeddings. GEARS learns gene embeddings during training, using latent space arithmetic to alter embeddings of perturbed cells. PRESCIENT projects into the principal subspace after altering z-scores for perturbed genes. ARMADA does not simulate perturbations, but ARMADA has uniquely interpretable motif activity scores and perturbations could be applied to individual motif activities. 
 
 We formalize these choices with a keyword argument `feature_extraction` that can take the values `mRNA`, `pca`, `armada`, `GEARS`, or `GeneFormer`.
 
 #### Low dimensional structure
 
-Some methods' estimates of $F$ are heavily constrained by low-rank structure. Furthermore, different methods provide different frameworks to describe how low-dimensional projections inter-operate with dynamic models. Let $Q(X)$ project $X$ into a $D$-dimensional space (via PCA unless otherwise noted). Let $R$ be the pseudoinverse of $Q$. We summarize some different approaches in terms of the order in which $R$, $G$, and $Q$ are applied.
+Some methods' estimates of $F$ are heavily constrained by low-rank structure. Furthermore, different methods provide different frameworks to describe how low-dimensional projections inter-operate with dynamic models. Let $Q(X)$ project $X$ into a $D$-dimensional space (via PCA unless otherwise noted). Let $R$ be a right inverse of $Q$. We summarize some different approaches in terms of the order in which $R$, $G$, and $Q$ are applied.
 
 - CellOracle models dynamics in the original space, but at the final step requires projection of all output into a low-dimensional space for biological interpretation of predictions. This effectively assumes $F(X) = R(Q(G(X)))$ where $G$ is the Bayesian ridge regression model mentioned above. 
 - PRESCIENT models dynamics after projection into a 30- or 50-dimensional principal subspace, assuming $F(X) = R(G(Q(X)))$. 
@@ -119,6 +119,6 @@ GGRN cannot fully represent the distinctive features of many methods. Some speci
 - GGRN cannot capture how PRESCIENT's optimal transport feature is fully, beautifully integrated: PRESCIENT selects $j$ given $i$ not by matching $X_i(T-\delta T)$ to $X_j(T)$, but rather by matching $F(X_i(T-\delta T))$ to $X_j(T)$. This requires jointly optimizing over both $F$ and the matching method's output. 
 - GGRN lacks any description of proliferation and apoptosis. PRESCIENT includes features for modeling proliferation and apoptosis, which are essential to its performance. 
 - GGRN does not describe any data preprocessing, rather assuming log normalized gene expression is given as input.
-- GGRN does not describe any motif analysis or chromatin data analysis; systematizing that domain would be a separate endeavor. CellOracle, SCENIC+, and Dictys include steps for data-driven pairing of enhancers with promoters. ARMADA emphasizes promoter annotation, models of motif evolution, and motif positioning relative to the promoter. 
+- GGRN does not describe any motif analysis or chromatin data analysis; systematizing that domain would be a separate endeavor. To highlight specific important features not included in GGRN: CellOracle, SCENIC+, and Dictys include steps for data-driven pairing of enhancers with promoters. ARMADA emphasizes promoter annotation, models of motif evolution, and motif positioning relative to the promoter. 
 - GGRN cannot specify the details of foundation models pre-trained on large collections of transcriptome data; systematizing that domain would be a separate endeavor.
-- GGRN does not include acyclic penalties such as those used by DCD-FG and related methods.
+- GGRN does not describe acyclic penalties such as those used by DCD-FG and related methods.

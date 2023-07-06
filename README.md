@@ -93,7 +93,7 @@ As the third backend of GGRN, we implement an autoregressive model that explicit
 
 - `matching_method`: "closest", "user", "random"
 - `do_perturbations_persist`: boolean
-- `prediction_timescale`: positive int
+- `prediction_timescale`: positive int. (Optimization becomes difficult rapidly; we recommend setting this to 1.) 
 - `regression_method`: ignored (fixed to "linear")
 - `eligible_regulators`: ignored (all genes are used)
 - `predict_self`: ignored (fixed to True)
@@ -108,7 +108,7 @@ For more information on this model, see [here](http://github.com/ekernf01/ggrn_b
 
 #### Backend 4: GEARS
 
-GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. The `eligible_regulators` arg behaves as expected and other GEARS arguments can be passed via `kwargs`. A GPU is typically required to use GEARS, but we find it is possible to use on a CPU with minor changes to GEARS source code: replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
+GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. The `eligible_regulators` arg behaves as expected and other GGRN args are ignored.  GEARS arguments can be passed via `kwargs`. A GPU is typically required to use GEARS, but we find it is possible to use GEARS on a CPU with minor changes to GEARS source code: replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
 
 #### Adding a new backend
 

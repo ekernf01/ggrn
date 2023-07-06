@@ -66,7 +66,7 @@ class GRN:
         self.models = [None for _ in self.train.var_names]
         self.training_args = {}
         self.features = None
-        self.feature_extraction = feature_extraction
+        self.feature_extraction = "mrna" if (feature_extraction is None or isnan_safe(feature_extraction)) else feature_extraction
         self.eligible_regulators = eligible_regulators
         if validate_immediately:
             assert self.check_perturbation_dataset()
@@ -89,7 +89,7 @@ class GRN:
         feature_extraction: str = "mrna",
         low_dimensional_structure: str = None,
         low_dimensional_training: str = None,
-        S: str = None, 
+        prediction_timescale: int = 1, 
         predict_self: str = False,   
         do_parallel: bool = True,
         kwargs = {},
@@ -126,7 +126,7 @@ class GRN:
                 If "SVD", perform an SVD on the data.
                 If "fixed", use a user-provided projection matrix.
                 If "supervised", learn the projection and its (approximate) inverse via backprop.
-            S (str, optional): For time-series models, how many steps separate each observation from its paired control.
+            prediction_timescale (int, optional): For time-series models, how many steps separate each observation from its paired control.
             predict_self (bool, optional): Should e.g. POU5F1 activity be used to predict POU5F1 expression? Defaults to False.
             test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.
             kwargs: Passed to DCDFG or GEARS. See help(dcdfg_wrapper.DCDFGWrapper.train). 
@@ -172,22 +172,26 @@ class GRN:
             assert len(confounders)==0, "autoregressive models cannot currently include confounders."
             assert cell_type_sharing_strategy=="identical", "autoregressive models cannot currently fit each cell type separately."
             assert predict_self, "autoregressive models currently cannot exclude autoregulation. Set predict_self=True to continue."
-            
-            # TODO: allow user to input latent dimension or network structure
-            # if network_prior!="ignore":
-                # pass
-                # low_dimensional_value = ??? self.network # Make sparse matrix from network structure
-            # else:
-                # low_dimensional_value = ??? # allow user to input latent dimentions
-            # Init and train model 
+            # Default to a 20-dimensional latent space learned from data.
+            # But if given an informative prior network, reformat it for use as projection to latent space.
+            if network_prior=="ignore":
+                low_dimensional_value = 20
+            else:
+                low_dimensional_value = scipy.sparse.coo_matrix(
+                    (
+                        len(self.network.get_all_regulators()), 
+                        self.train.n_vars 
+                    )
+                )
+                for i, target in enumerate(self.network.get_all_one_field("target")):
+                    low_dimensional_value[self.train.var_names.index(self.network.get_regulators(target)), i] = 1
             autoregressive_model = autoregressive.GGRNAutoregressiveModel(
                 self.train, 
                 matching_method = matching_method,
                 low_dimensional_structure = low_dimensional_structure,
                 low_dimensional_training = low_dimensional_training,
-                # TODO: reformat a LightNetwork such as example_network if low_dimensional_training=="fixed"
-                # low_dimensional_value = low_dimensional_value, 
-                S = S
+                low_dimensional_value = low_dimensional_value, 
+                S = prediction_timescale
             )
             autoregressive_model.train()      
             self.models = autoregressive_model
@@ -468,7 +472,12 @@ class GRN:
         # Set up AnnData to contain starting expression: the state of the observations prior to perturbation. 
         if starting_expression is None:
             starting_expression = predictions.copy()
-            starting_expression.raw = predictions.copy()
+            # Raw data are needed for GeneFormer feature extraction
+            starting_expression.raw = anndata.AnnData(
+                X = scipy.sparse.dok_matrix((predictions.n_obs, self.train.raw.n_vars)),
+                obs = predictions.obs.copy(), 
+                var = self.train.raw.var.copy()
+            ) 
             # We allow users to select a subset of controls using a prefix, e.g. GFP overexpression instead of DMSO. 
             if control_subtype is None or isnan_safe(control_subtype):
                 all_controls = self.train.obs["is_control"] 
@@ -745,6 +754,7 @@ class GRN:
                                         "weight": coef,
                                         "cell_type": cell_type,
                                     } 
+                                    
                                 )
                             )
                 elif self.training_args["cell_type_sharing_strategy"] == "identical":

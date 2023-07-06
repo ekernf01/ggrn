@@ -56,7 +56,7 @@ The initial implementation requires steady-state matching; it ignores the passag
 - `method`: A method from sklearn, e.g. `KernelRidge`
 - `eligible_regulators`: Any list of gene names
 - `predict_self`: ignored (fixed to False)
-- `feature_extraction`: "mrna" or "geneformer". With "geneformer", you cannot use pruning or prior networks.
+- `feature_extraction`: "mrna" or "geneformer". With "geneformer", you cannot use prior networks.
 - `low_dimensional_structure`: ignored (fixed to "none")
 - `low_dimensional_training`: ignored
 - `pruning_strategy`: "none", "prune_and_refit"

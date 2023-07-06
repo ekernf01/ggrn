@@ -1,4 +1,4 @@
-## A declarative grammar of inference methods for gene regulatory networks
+## A grammar of inference methods for gene regulatory networks
 
 GGRN is a set of Python modules that together allow users to flexibly combine traits of different inference methods for gene regulatory network inference. A full exposition is provided in `GGRN.md`, which is the raw source for the appendix from our  preprint (not up at time of writing). 
 

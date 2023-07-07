@@ -86,6 +86,7 @@ We incorporate DCD-FG as a second backend for GGRN. We offer a thin wrapper with
 - `network`: ignored 
 - `cell_type_sharing_strategy`: ignored (fixed to "identical").
 
+For more information on our pip-installable interface to DCD-FG, see [here](https://github.com/ekernf01/ggrn_backend2). 
 
 #### Backend 3: autoregressive with matching
 

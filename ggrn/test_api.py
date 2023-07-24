@@ -119,6 +119,53 @@ class TestModelRuns(unittest.TestCase):
             p, anndata.AnnData
         )
 
+    def test_fit_with_closest_control(self):
+        grn    = ggrn.GRN(smaller_real_data.copy())
+        grn.extract_features()
+        grn.fit(
+            method = "RidgeCVExtraPenalty", 
+            cell_type_sharing_strategy = "identical", 
+            network_prior = "ignore",
+            pruning_strategy = "none", 
+            pruning_parameter = None, 
+            matching_method = "closest",
+        )
+        p = grn.predict(example_perturbations)
+        self.assertIsInstance(
+            p, anndata.AnnData
+        )
+    def test_fit_with_random_control(self):
+        grn    = ggrn.GRN(smaller_real_data.copy())
+        grn.extract_features()
+        grn.fit(
+            method = "RidgeCVExtraPenalty", 
+            cell_type_sharing_strategy = "identical", 
+            network_prior = "ignore",
+            pruning_strategy = "none", 
+            pruning_parameter = None, 
+            matching_method = "random",
+        )
+        p = grn.predict(example_perturbations)
+        self.assertIsInstance(
+            p, anndata.AnnData
+        )
+
+    def test_fit_and_iterated_predict(self):
+        grn    = ggrn.GRN(smaller_real_data.copy())
+        grn.extract_features()
+        grn.fit(
+            method = "RidgeCVExtraPenalty", 
+            cell_type_sharing_strategy = "identical", 
+            network_prior = "ignore",
+            pruning_strategy = "none", 
+            pruning_parameter = None, 
+            prediction_timescale = 3,
+        )
+        p = grn.predict(example_perturbations)
+        self.assertIsInstance(
+            p, anndata.AnnData
+        )
+
     def test_network_fit_and_predict(self):
         grn    = ggrn.GRN(smaller_real_data, network = network)
         grn.extract_features()
@@ -155,8 +202,7 @@ class TestModelRuns(unittest.TestCase):
             method = "RidgeCVExtraPenalty", 
             cell_type_sharing_strategy = "identical", 
             network_prior = "ignore", 
-            pruning_strategy = "prune_and_refit",
-            pruning_parameter = 5000, 
+            pruning_strategy = "none",
             do_parallel=False,
         )
         p = grn.predict(example_perturbations, do_parallel=False)

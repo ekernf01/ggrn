@@ -7,6 +7,7 @@ import sklearn.linear_model
 import sklearn.ensemble
 import sklearn.neural_network
 import sklearn.kernel_ridge
+from sklearn.neighbors import KDTree
 import sklearn.dummy
 import numpy as np
 import scipy.sparse
@@ -56,7 +57,7 @@ class GRN:
                 can also specify "geneformer" to use GeneFormer to extract cell embeddings. 
 
         """
-        self.train = train 
+        self.train = train
         try:
             self.train.X = self.train.X.toarray()
         except AttributeError:
@@ -81,7 +82,6 @@ class GRN:
         confounders: list = [], 
         cell_type_sharing_strategy: str = "identical",   
         cell_type_labels: str = None,
-        eligible_regulators: list = None,
         network_prior: str = None,    
         pruning_strategy: str = "none", 
         pruning_parameter: str = None,          
@@ -149,6 +149,8 @@ class GRN:
         self.training_args["predict_self"]               = predict_self
         self.training_args["feature_extraction"]         = feature_extraction
         self.training_args["method"]                     = method
+        self.training_args["matching_method"]            = matching_method
+        self.train = match_controls(self.train, matching_method) 
         # Check that the cell types match between the network and the expression data
         if network_prior != "ignore" and self.training_args["cell_type_sharing_strategy"] != 'identical':
             ct_from_network = self.network.get_all_one_field("cell_type")
@@ -187,7 +189,7 @@ class GRN:
                     low_dimensional_value[self.train.var_names.index(self.network.get_regulators(target)), i] = 1
             autoregressive_model = autoregressive.GGRNAutoregressiveModel(
                 self.train, 
-                matching_method = matching_method,
+                matching_method = "user", #because it's taken care of above
                 low_dimensional_structure = low_dimensional_structure,
                 low_dimensional_training = low_dimensional_training,
                 low_dimensional_value = low_dimensional_value, 
@@ -431,9 +433,10 @@ class GRN:
         starting_expression: anndata.AnnData = None,
         control_subtype = None,
         do_parallel: bool = True,
-        add_noise = False,
-        noise_sd = None,
-        seed = 0,
+        add_noise: bool = False,
+        noise_sd: float = None,
+        seed: int = 0,
+        prediction_timescale: int = 1,
     ):
         """Predict expression after new perturbations.
 
@@ -450,6 +453,7 @@ class GRN:
                 where e is IID Gaussian with variance equal to the estimated residual variance.
             noise_sd (bool): sd of the variable e described above. Defaults to estimates from the fitted models.
             seed (int): RNG seed.
+            prediction_timescale (int)
         """
         # Check inputs
         if type(self.models)==list and not self.models:
@@ -531,11 +535,6 @@ class GRN:
             starting_expression.obs.loc[idx_str, "perturbation"]                        = perturbations[i][0]
             starting_expression.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[i][1]
             
-        starting_features = self.extract_features(
-            train = starting_expression, 
-            in_place=False, 
-        ).copy()        
-
         # Now predict the expression
         if self.training_args["method"].startswith("autoregressive"):
             predictions = self.models.predict(perturbations = perturbations, starting_expression = starting_expression)
@@ -593,9 +592,15 @@ class GRN:
                 cell_type_labels = predictions.obs[self.training_args["cell_type_labels"]]
             else:
                 cell_type_labels = None
-            y = self.predict_parallel(features = starting_features, cell_type_labels = cell_type_labels, do_parallel = do_parallel) 
-            for i in range(len(self.train.var_names)):
-                predictions.X[:,i] = y[i]
+            for i in range(prediction_timescale):
+                starting_features = self.extract_features(
+                    train = starting_expression, 
+                    in_place=False, 
+                ).copy()   
+                y = self.predict_parallel(features = starting_features, cell_type_labels = cell_type_labels, do_parallel = do_parallel) 
+                for i in range(len(self.train.var_names)):
+                    predictions.X[:,i] = y[i]
+                starting_expression = predictions.X
             # Set perturbed genes equal to user-specified expression, not whatever the endogenous level is predicted to be
             for i, pp in enumerate(perturbations):
                 if pp[0] in predictions.var_names:
@@ -663,8 +668,10 @@ class GRN:
             self.features = features # shallow copy is best here too
         else:
             return features
-
+ 
     def fit_models_parallel(self, FUN, network = None, do_parallel: bool = True, verbose: bool = False):
+        self.train.obs["index_int"] = [i for i in range(self.train.n_obs)]
+        self.train.obs["matched_control_int"] = [self.train.obs.loc[i, "index_int"] for i in self.train.obs["matched_control"].values]
         if network is None:
             network = self.network
         if do_parallel:     
@@ -672,7 +679,7 @@ class GRN:
                     delayed(apply_supervised_ml_one_gene)(
                         train_obs = self.train.obs,
                         target_expr = self.train.X[:,i],
-                        features = self.features,
+                        features = self.features[self.train.obs["matched_control_int"], :],
                         network = network,
                         training_args = self.training_args,
                         eligible_regulators = self.eligible_regulators, 
@@ -687,7 +694,7 @@ class GRN:
                 apply_supervised_ml_one_gene(
                     train_obs = self.train.obs,
                     target_expr = self.train.X[:,i],
-                    features = self.features,
+                    features = self.features[self.train.obs["matched_control_int"], :],
                     network = network,
                     training_args = self.training_args,
                     eligible_regulators = self.eligible_regulators, 
@@ -1107,3 +1114,48 @@ def isnan_safe(x):
         return np.isnan(x)
     except:
         return False
+
+
+def match_controls(train_data: anndata.AnnData, matching_method: str):
+    """
+    Add info to the training data about which observations are paired with which.
+
+    matching_method: "steady_state" (match each obs to itself), "closest" (choose the closest control), or
+      "user" (do nothing and expect an existing column 'matched_control'), or 
+      "random" (choose a random control).
+    """
+    if matching_method.lower() == "closest":
+        assert "matched_control" not in train_data.obs.columns, "matched_control column is already in .obs; delete it or set matching_method='user'."
+        assert "is_control" in train_data.obs.columns, "A boolean field 'is_control' is required."
+        assert any(train_data.obs["is_control"]), "matching_method=='closest' requires some True entries in train_data.obs['is_control']."
+        # Index the control expression with a K-D tree
+        kdt = KDTree(train_data.X[train_data.obs["is_control"],:], leaf_size=30, metric='euclidean')
+        control_index_converter = train_data.obs.index[train_data.obs["is_control"]].copy()
+        # Query the index to get 1 nearest neighbor
+        nn = [nn[0] for nn in kdt.query(train_data.X, k=1, return_distance=False)]
+        # Convert from index among controls to index among all obs
+        train_data.obs["matched_control"] = control_index_converter[nn]
+        # Mark controls as steady state, as they ought to be self-matched
+        for j,i in enumerate(train_data.obs.index):
+            if train_data.obs.loc[i, "is_control"]:
+                train_data.obs.loc[i, "is_steady_state"] = True
+                train_data.obs.loc[i, "matched_control"] = i # Controls should be self-matched, which can fail when input data have exact dupes.
+    elif matching_method.lower() == "steady_state":
+        train_data.obs["matched_control"] = train_data.obs.index
+    elif matching_method.lower() == "optimal_transport":
+        raise NotImplementedError("Sorry, cannot yet match samples to controls by optimal transport.")
+    elif matching_method.lower() == "random":
+        train_data.obs["matched_control"] = train_data.obs.index[np.random.choice(
+            np.where(train_data.obs["is_control"])[0], 
+            train_data.obs.shape[0], 
+            replace = True,
+        )]
+    elif matching_method.lower() == "user":
+        assert "matched_control" in train_data.obs.columns, "You must provide obs['matched_control']."
+        assert all( train_data.obs.loc[train_data.obs["matched_control"].notnull(), "matched_control"] < train_data.n_obs ), f"Matched control index may not be above {train_data.n_obs}."
+    else: 
+        raise ValueError("matching method must be 'closest', 'user', or 'random'.")
+    # This helps exclude observations with no matched control.
+    train_data.obs["index_among_eligible_observations"] = train_data.obs["matched_control"].notnull().cumsum()-1
+    train_data.obs.loc[train_data.obs["matched_control"].isnull(), "index_among_eligible_observations"] = np.nan
+    return train_data

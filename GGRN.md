@@ -2,7 +2,7 @@
 
 We describe a "grammar" capable of closely mimicking the predictive methods underlying a variety of GRN inference methods. 
 
-This grammar describes many combinations of features that are not yet implemented in our software. For clarity, these are still described as software specifications. Separate documentation for the GGRN python package describes a subset of options that are currently available.
+This grammar describes many combinations of features that are not yet implemented in our software. For clarity, these are still described in the style of software specifications. Separate documentation for the GGRN python package describes a subset of options that are currently available.
 
 #### Notation 
 

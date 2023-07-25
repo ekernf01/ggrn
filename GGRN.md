@@ -26,7 +26,7 @@ Many transcription factors are post-transcriptionally regulated, and the mRNA le
 
 For mRNA levels, the effect of genetic perturbation can be directly measured (although knockouts may have nonzero mRNA levels despite a complete loss of function). For more complex feature extraction, each model must specify how genetic perturbations affects the features. GeneFormer uses a tokenized representation of each cell which orders genes according to a measure of expression anomaly over baseline; for perturbations, GeneFormer places overexpressed genes first and deleted genes last, then generates perturbed cell embeddings. GEARS learns gene embeddings during training, using latent space arithmetic to alter embeddings of perturbed cells. PRESCIENT projects into the principal subspace after altering z-scores for perturbed genes. ARMADA does not simulate perturbations, but ARMADA has uniquely interpretable motif activity scores and perturbations could be applied to individual motif activities. 
 
-We formalize these choices with a keyword argument `feature_extraction` that can take the values `mRNA`, `pca`, `armada`, `GEARS`, or `GeneFormer`.
+We formalize these choices with a keyword argument `feature_extraction` that can take the values `mRNA` or `GeneFormer`.
 
 #### Low dimensional structure
 

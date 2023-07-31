@@ -4,8 +4,19 @@ GGRN is a set of Python modules that together allow users to flexibly combine tr
 
 ### Installation
 
+Just this package:
+
 ```bash
-pip install git+https://github.com/ekernf01/ggrn
+pip install ggrn @ git+https://github.com/ekernf01/ggrn
+```
+
+With our other related packages:
+
+```bash
+for p in load_networks load_perturbations ggrn_backend2 ggrn perturbation_benchmarking_package geneformer_embeddings
+do
+    pip install ${p} @ http://github.com/ekernf01/${p}
+done
 ```
 
 ### Usage

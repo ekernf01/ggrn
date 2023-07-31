@@ -17,7 +17,7 @@ from torch.cuda import is_available as is_gpu_available
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
 except ImportError:
-    print("DCD-FG is not installed, and related models (DCD-FG, NOTEARS) will not be available.")
+    print("DCD-FG wrapper is not installed, and related models (DCD-FG, NOTEARS) will not be available.")
 try:
     from gears import PertData as GEARSPertData
     from gears import GEARS
@@ -34,7 +34,10 @@ except ImportError:
 
 # These govern expectations about data format for regulatory networks and perturbation data.
 import load_networks
-import load_perturbations
+try:
+    import load_perturbations
+except:
+    CAN_VALIDATE = False
 
 class GRN:
     """
@@ -198,7 +201,18 @@ class GRN:
             autoregressive_model.train()      
             self.models = autoregressive_model
         elif method.startswith("SCFormer"):
-            raise NotImplementedError("Sorry, the SCFormer interface is still in progress.")
+            raise NotImplementedError("Sorry, the SCFormer backend is still in progress.")
+        elif method.startswith("GeneFormerNSP"):
+            raise NotImplementedError("Sorry, the GeneFormerNSP backend is still in progress.")
+            # FIT:
+            #     Tokenize controls and perturb tokenized representation
+            #     Tokenize post-perturbation embeddings
+            #     Get the GeneFormer network
+            #     Feed'em all to a BERT NSP fine tuning task
+            #     Train a decoder of some sort to get expression from tokens
+            # PREDICT:
+            #     run next sentence prediction on test data
+            #     decode into expression
         elif method.startswith("docker"):
             # There is no actual training here, just copying data. Training happens when you call predict.
             try:
@@ -868,8 +882,10 @@ class GRN:
         raise ValueError("method must start with an allowed prefix or must equal an allowed value (these will be printed to stdout).")  
 
     def check_perturbation_dataset(self):
-        return load_perturbations.check_perturbation_dataset(ad=self.train)
-
+        if CAN_VALIDATE:
+            return load_perturbations.check_perturbation_dataset(ad=self.train)
+        else:
+            raise Exception("load_perturbations is not installed, so cannot validate data. Set validate_immediately=False.")
 
     def predict_parallel(self, features, cell_type_labels, network = None, do_parallel = True): 
         if network is None:

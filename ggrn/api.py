@@ -11,7 +11,6 @@ from sklearn.neighbors import KDTree
 import sklearn.dummy
 import numpy as np
 import scipy.sparse
-import pickle
 import json
 from torch.cuda import is_available as is_gpu_available
 try:
@@ -36,6 +35,7 @@ except ImportError:
 import load_networks
 try:
     import load_perturbations
+    CAN_VALIDATE = True
 except:
     CAN_VALIDATE = False
 
@@ -240,10 +240,10 @@ class GRN:
             with open("from_to_docker/kwargs.json", "x") as f:
                 json.dump(kwargs, f)
         elif method.startswith("GEARS"):
-            assert len(confounders)==0, "GEARS cannot currently include confounders."
+            assert len(confounders)==0, "Our interface to GEARS cannot currently include confounders."
             assert network_prior=="ignore", "Our interface to GEARS cannot currently include custom networks."
-            assert cell_type_sharing_strategy=="identical", "GEARS cannot currently fit each cell type separately."
-            assert predict_self, "GEARS cannot rule out autoregulation. Set predict_self=True."
+            assert cell_type_sharing_strategy=="identical", "Our interface to GEARS cannot currently fit each cell type separately."
+            assert predict_self, "Our interface to GEARS cannot rule out autoregulation. Set predict_self=True."
             # Data setup according to GEARS data tutorial:
             # https://github.com/snap-stanford/GEARS/blob/master/demo/data_tutorial.ipynb 
             def reformat_perturbation_for_gears(perturbation):
@@ -274,10 +274,6 @@ class GRN:
                 shutil.rmtree("./ggrn_gears_input")
             except FileNotFoundError:
                 pass
-            try:
-                os.remove("GEARS_gene_set.pkl")
-            except FileNotFoundError:
-                pass
             try: 
                 os.remove("data/go_essential_current.csv")
             except FileNotFoundError:
@@ -300,17 +296,8 @@ class GRN:
             for k in defaults:
                 if k not in kwargs:
                     kwargs[k] = defaults[k]
-            # Feed in custom genes
-            gene_set_path = "GEARS_gene_set.pkl"
-            try:
-                os.remove(gene_set_path)
-            except FileNotFoundError:
-                pass
-            with open(gene_set_path, 'wb') as f:
-                pickle.dump(self.eligible_regulators, f)
             # Follow GEARS data setup tutorial
-            pert_data = GEARSPertData("./ggrn_gears_input", 
-                                      gene_set_path = gene_set_path)
+            pert_data = GEARSPertData("./ggrn_gears_input")
             pert_data.new_data_process(dataset_name = 'current', adata = self.train)
             pert_data.load(data_path = './ggrn_gears_input/current')
             pert_data.prepare_split(split = 'simulation', seed = kwargs["seed"] )
@@ -688,12 +675,13 @@ class GRN:
         self.train.obs["matched_control_int"] = [self.train.obs.loc[i, "index_int"] for i in self.train.obs["matched_control"].values]
         if network is None:
             network = self.network
-        if do_parallel:     
+        F = self.features[self.train.obs["matched_control_int"], :]
+        if do_parallel:   
                 m = Parallel(n_jobs=cpu_count()-1, verbose = verbose, backend="loky")(
                     delayed(apply_supervised_ml_one_gene)(
                         train_obs = self.train.obs,
                         target_expr = self.train.X[:,i],
-                        features = self.features[self.train.obs["matched_control_int"], :],
+                        features = F,
                         network = network,
                         training_args = self.training_args,
                         eligible_regulators = self.eligible_regulators, 
@@ -708,7 +696,7 @@ class GRN:
                 apply_supervised_ml_one_gene(
                     train_obs = self.train.obs,
                     target_expr = self.train.X[:,i],
-                    features = self.features[self.train.obs["matched_control_int"], :],
+                    features = F,
                     network = network,
                     training_args = self.training_args,
                     eligible_regulators = self.eligible_regulators, 

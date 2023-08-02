@@ -2,7 +2,7 @@
 
 We describe a "grammar" capable of closely mimicking the predictive methods underlying a variety of GRN inference methods. 
 
-This grammar describes many combinations of features that are not yet implemented in our software. For clarity, these are still described in the style of software specifications. Separate documentation for the GGRN python package describes a subset of options that are currently available.
+This grammar describes many combinations of features that are not yet implemented in our software. For clarity, these are still described in the style of software specifications. Separate web-based documentation for the GGRN python package describes a subset of options that are currently available.
 
 #### Notation 
 
@@ -16,7 +16,7 @@ We formalize this choice with a keyword argument `matching_method` that can take
 
 #### Regression
 
-The matching methods described above yield a set of paired measurements $\{X_i, Y_i\}$. Every method described by this "grammar" uses supervised ML to fit $F$ such that $Y_i \approx F(X_i)$. Different families are assumed: CellOracle, ScanBMA, Dictys, ARMADA, LLC, NOTEARS, and NOTEARS-LR use linear regression; DCD-FG uses multilayer perceptrons; NOBEARS uses polynomial regression; GENIE3 uses random forests; Dynamo uses kernel ridge regression; and PRESCIENT uses a neural network. Sometimes these are not trained directly on expression levels; they may also involve projection into lower-dimensional latent spaces. Low-dimensional structure will be discussed shortly. 
+The matching methods described above yield a set of paired measurements $\{X_i, Y_i\}$. Every method described by this "grammar" uses supervised ML to fit $F$ such that $Y_i \approx F(X_i)$. Different families are assumed: CellOracle, ScanBMA, Dictys, ARMADA, LLC, NOTEARS, and NOTEARS-LR use linear regression; DCD-FG uses multilayer perceptrons; NOBEARS uses polynomial regression; GENIE3 uses random forests; Dynamo uses kernel ridge regression; and PRESCIENT and RNAForecaster use neural networks. Sometimes these are not trained directly on expression levels; they may also involve projection into lower-dimensional latent spaces. Low-dimensional structure will be discussed shortly. 
 
 We formalize the choice of regression method with a keyword argument `regression_method` that can take values such as `RidgeCV` or `LassoCV`. 
 
@@ -35,6 +35,7 @@ Some methods' estimates of $F$ are heavily constrained by low-rank structure. Fu
 - CellOracle models dynamics in the original space, but at the final step requires projection of all output into a low-dimensional space for biological interpretation of predictions. This effectively assumes $F(X) = R(Q(G(X)))$ where $G$ is the Bayesian ridge regression model mentioned above. 
 - PRESCIENT models dynamics after projection into a 30- or 50-dimensional principal subspace, assuming $F(X) = R(G(Q(X)))$. 
 - ARMADA assumes $F(X) = R(G(Q(X)))$, but the "encoder" $Q$ is not learned via PCA or backprop. Rather, it is fixed *a priori* based on motif analysis; in the notation above, $Q(X) = N^{\dagger}X$ where $N^{\dagger}$ is the Moore-Penrose pseudoinverse of the motif-by-promoter count matrix $N$.
+- RNAForecaster's neural ODE specification includes a hidden layer of user-defined size, which could be viewed as a low-dimensional constraint on predicted expression. 
 - DCD-FG and NOTEARS-LR each jointly learn an "encoder" $Q$ and a "decoder" $G$ such that $F(X) = G(Q(X))$. The decoder effectively plays the role of both $R$ (projecting a low-dimensional vector back to the original data dimension) and $G$ (modeling dynamics), but we call it $G$ here. For NOTEARS-LR, $G$ and $Q$ are linear, and for DCD-FG, $G$ is linear but $Q$ consists of $D$ separate multilayer perceptrons, where $D$ is the latent dimension. NOTEARS-LR and DCD-FG do not use PCA; they learn the encoder and the decoder in a supervised way by backpropagating errors. 
 
 There are two important questions here. First, can the dynamics be fully described by an action on the low-dimensional space? For CellOracle, the answer is "no"; for ARMADA, PRESCIENT, and DCD-FG, it is "yes". Second, how are the low-dimensional projections learned? For ARMADA, they are fixed; for CellOracle and PRESCIENT, they are learned by PCA; for DCD-FG, they are learned by back-propagating errors. We formalize these options with keyword arguments:
@@ -66,7 +67,7 @@ We formalize these alternatives with a keyword argument `network` that accepts u
 
 #### Autoregulation
 
-Some methods allow autoregulation, while others (e.g. DCD-FG, CellOracle) must exclude autoregulation to obtain non-trivial solutions. To represent this, we include a Boolean keyword arg `predict_self`.
+Some methods allow autoregulation, while others (e.g. DCD-FG, CellOracle) must exclude autoregulation to obtain non-trivial solutions. To represent this, we include a keyword arg `predict_self` taking the values True or False.
 
 #### Cell-type specificity
 

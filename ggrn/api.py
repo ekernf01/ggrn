@@ -258,8 +258,10 @@ class GRN:
             # GEARS has certain input reqs:
             # - expects sparse matrix for X
             # - needs the base of the log-transform to be explicit
-            # - needs to write to hdf5, so no sets in .uns
+            # - needs to write to hdf5, so no sets in .uns and no Categorical in .obs
             # - cannot handle perturbations with just one sample
+            for k in self.train.obs.columns:
+                self.train.obs[k] = self.train.obs[k].astype("str") 
             self.train.uns["log1p"] = dict()
             self.train.uns["log1p"]["base"] = np.exp(1)
             self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])

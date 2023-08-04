@@ -255,8 +255,6 @@ class GRN:
             self.train.var['gene_name'] = self.train.var.index
             self.train.obs['condition'] = [reformat_perturbation_for_gears(p) for p in self.train.obs['perturbation']]
             self.train.obs['cell_type'] = "all"
-            for k in self.train.obs.columns:
-                self.train.obs[k] = self.train.obs[k].astype("str") # Remove categories; otherwise we hit h5ad errors on Categorical
             # GEARS has certain input reqs:
             # - expects sparse matrix for X
             # - needs the base of the log-transform to be explicit
@@ -300,7 +298,10 @@ class GRN:
                     kwargs[k] = defaults[k]
             # Follow GEARS data setup tutorial
             pert_data = GEARSPertData("./ggrn_gears_input")
-            pert_data.new_data_process(dataset_name = 'current', adata = self.train)
+            try:
+                pert_data.new_data_process(dataset_name = 'current', adata = self.train)
+            except:
+                breakpoint()
             pert_data.load(data_path = './ggrn_gears_input/current')
             pert_data.prepare_split(split = 'simulation', seed = kwargs["seed"] )
             pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])

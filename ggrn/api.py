@@ -300,10 +300,7 @@ class GRN:
                     kwargs[k] = defaults[k]
             # Follow GEARS data setup tutorial
             pert_data = GEARSPertData("./ggrn_gears_input")
-            try:
-                pert_data.new_data_process(dataset_name = 'current', adata = self.train)
-            except:
-                breakpoint()
+            pert_data.new_data_process(dataset_name = 'current', adata = self.train)
             pert_data.load(data_path = './ggrn_gears_input/current')
             pert_data.prepare_split(split = 'simulation', seed = kwargs["seed"] )
             pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])

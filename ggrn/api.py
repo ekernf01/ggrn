@@ -255,6 +255,9 @@ class GRN:
             self.train.var['gene_name'] = self.train.var.index
             self.train.obs['condition'] = [reformat_perturbation_for_gears(p) for p in self.train.obs['perturbation']]
             self.train.obs['cell_type'] = "all"
+            for k in self.train.obs.columns:
+                if self.train.obs[k].dtype.name == "category":
+                    self.train.obs[k] = self.train.obs[k].astype("str") # Remove categories; otherwise we hit h5ad errors on Categorical
             # GEARS has certain input reqs:
             # - expects sparse matrix for X
             # - needs the base of the log-transform to be explicit

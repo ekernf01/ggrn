@@ -299,7 +299,7 @@ class GRN:
                 if k not in kwargs:
                     kwargs[k] = defaults[k]
             # Follow GEARS data setup tutorial
-            pert_data = GEARSPertData("./ggrn_gears_input")
+            pert_data = GEARSPertData("./ggrn_gears_input", default_pert_graph = True)
             pert_data.new_data_process(dataset_name = 'current', adata = self.train)
             pert_data.load(data_path = './ggrn_gears_input/current')
             try:

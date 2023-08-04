@@ -686,13 +686,13 @@ class GRN:
         self.train.obs["matched_control_int"] = [self.train.obs.loc[i, "index_int"] for i in self.train.obs["matched_control"].values]
         if network is None:
             network = self.network
-        F = self.features[self.train.obs["matched_control_int"], :]
+        self.features = self.features[self.train.obs["matched_control_int"], :]
         if do_parallel:   
                 m = Parallel(n_jobs=cpu_count()-1, verbose = verbose, backend="loky")(
                     delayed(apply_supervised_ml_one_gene)(
                         train_obs = self.train.obs,
                         target_expr = self.train.X[:,i],
-                        features = F,
+                        features = self.features,
                         network = network,
                         training_args = self.training_args,
                         eligible_regulators = self.eligible_regulators, 
@@ -707,7 +707,7 @@ class GRN:
                 apply_supervised_ml_one_gene(
                     train_obs = self.train.obs,
                     target_expr = self.train.X[:,i],
-                    features = F,
+                    features = self.features,
                     network = network,
                     training_args = self.training_args,
                     eligible_regulators = self.eligible_regulators, 

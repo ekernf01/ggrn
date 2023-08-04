@@ -20,16 +20,19 @@ except ImportError:
 try:
     from gears import PertData as GEARSPertData
     from gears import GEARS
+    HAS_GEARS = True
 except ImportError:
-    print("GEARS is not installed, and related models will not be available.")
+    HAS_GEARS = False
 try:
     import ggrn_backend3.api as autoregressive
+    HAS_AUTOREGRESSIVE = True
 except ImportError:
-    print("autoregressive backend is not installed, and related models will not be available.")
+    HAS_AUTOREGRESSIVE = False
 try:
     from geneformer_embeddings import geneformer_embeddings
+    HAS_GENEFORMER = True
 except ImportError:
-    print("GeneFormer backend is not installed, and related models will not be available.")
+    HAS_GENEFORMER = False
 
 # These govern expectations about data format for regulatory networks and perturbation data.
 import load_networks
@@ -169,6 +172,8 @@ class GRN:
                         "Missing:  \n" f"{prettyprint(ct_missing)}"
                     )
         if method.startswith("autoregressive"):
+            if not HAS_AUTOREGRESSIVE:
+                raise Exception("autoregressive backend is not installed, and related models will not be available.")
             np.testing.assert_equal(
                 np.array(self.eligible_regulators), 
                 np.array(self.train.var_names),     
@@ -240,6 +245,8 @@ class GRN:
             with open("from_to_docker/kwargs.json", "x") as f:
                 json.dump(kwargs, f)
         elif method.startswith("GEARS"):
+            if not HAS_GEARS:
+                raise ImportError("GEARS is not installed, and related models will not be available.")
             assert len(confounders)==0, "Our interface to GEARS cannot currently include confounders."
             assert network_prior=="ignore", "Our interface to GEARS cannot currently include custom networks."
             assert cell_type_sharing_strategy=="identical", "Our interface to GEARS cannot currently fit each cell type separately."
@@ -662,6 +669,8 @@ class GRN:
                         column = self.eligible_regulators.index(pert_genes[pert_idx])
                         features[int_i, column] = pert_exprs[pert_idx]
         elif self.feature_extraction.lower() in {"geneformer"}:
+            if not HAS_GENEFORMER:
+                raise ImportError("GeneFormer backend is not installed, and related models will not be available.")
             self.eligible_regulators = list(range(256))
             features = geneformer_embeddings.get_geneformer_perturbed_cell_embeddings(
                 adata_train = train,

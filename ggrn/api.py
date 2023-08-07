@@ -98,7 +98,7 @@ class GRN:
         prediction_timescale: int = 1, 
         predict_self: str = False,   
         do_parallel: bool = True,
-        kwargs = {},
+        kwargs = dict(),
     ):
         """Fit the model.
 
@@ -227,18 +227,17 @@ class GRN:
             os.makedirs("from_to_docker", exist_ok=True)
             ggrn_args = {
                 "regression_method": method,
-                "confounders":confounders,
-                "cell_type_sharing_strategy":  cell_type_sharing_strategy,
-                "cell_type_labels":cell_type_labels, 
+                "confounders": list(confounders),
+                "cell_type_sharing_strategy": cell_type_sharing_strategy,
+                "cell_type_labels": cell_type_labels, 
                 "network_prior": network_prior,
                 "pruning_strategy": pruning_strategy,
-                "pruning_parameter":   pruning_parameter,   
+                "pruning_parameter": pruning_parameter,   
                 "matching_method": matching_method,
                 "low_dimensional_structure":  low_dimensional_structure,
                 "low_dimensional_training": low_dimensional_training,
-                "S": S,
-                "predict_self": predict_self,   
-                "do_parallel": do_parallel,
+                "prediction_timescale": int(prediction_timescale),
+                "predict_self": bool(predict_self), 
             }
             with open("from_to_docker/ggrn_args.json", "x") as f:
                 json.dump(ggrn_args, f)

@@ -345,35 +345,37 @@ class GRN:
             assert len(confounders)==0, "sklearn models cannot currently include confounders."
             if method == "mean":
                 def FUN(X,y):
-                    return sklearn.dummy.DummyRegressor(strategy="mean").fit(X, y)
+                    return sklearn.dummy.DummyRegressor(strategy="mean", **kwargs).fit(X, y)
             elif method == "median":
                 def FUN(X,y):
-                    return sklearn.dummy.DummyRegressor(strategy="median").fit(X, y)
+                    return sklearn.dummy.DummyRegressor(strategy="median", **kwargs).fit(X, y)
             elif method == "GradientBoostingRegressor":
                 def FUN(X,y):
-                    return sklearn.ensemble.GradientBoostingRegressor().fit(X, y)
+                    return sklearn.ensemble.GradientBoostingRegressor(**kwargs).fit(X, y)
             elif method == "ExtraTreesRegressor":
                 def FUN(X,y):
-                    et = sklearn.ensemble.ExtraTreesRegressor(n_jobs=1).fit(X, y)
+                    et = sklearn.ensemble.ExtraTreesRegressor(n_jobs=1, **kwargs).fit(X, y)
                     return et
             elif method == "KernelRidge":
                 def FUN(X,y):
-                    return sklearn.kernel_ridge.KernelRidge().fit(X, y)
+                    return sklearn.kernel_ridge.KernelRidge(**kwargs).fit(X, y)
             elif method == "ElasticNetCV":
                 def FUN(X,y):
                     return sklearn.linear_model.ElasticNetCV(
-                        fit_intercept=True,
+                        fit_intercept=True, 
+                        **kwargs,
                     ).fit(X, y)
             elif method == "LarsCV":
                 def FUN(X,y):
                     return sklearn.linear_model.LarsCV(
                         fit_intercept=True,
+                        **kwargs,
                     ).fit(X, y)
             elif method == "OrthogonalMatchingPursuitCV":
                 def FUN(X,y):
                     try:
                         omp = sklearn.linear_model.OrthogonalMatchingPursuitCV(
-                            fit_intercept=True
+                            fit_intercept=True, **kwargs
                         ).fit(X, y)
                     except ValueError: #may fail with ValueError: attempt to get argmin of an empty sequence
                         omp = sklearn.dummy.DummyRegressor(strategy="mean").fit(X, y)
@@ -381,24 +383,29 @@ class GRN:
             elif method == "ARDRegression":
                 def FUN(X,y):
                     return sklearn.linear_model.ARDRegression(
-                        fit_intercept=True,
+                        fit_intercept=True, **kwargs,
                     ).fit(X, y)
             elif method == "BayesianRidge":
                 def FUN(X,y):
                     br = sklearn.linear_model.BayesianRidge(
-                        fit_intercept=True, copy_X = True
+                        fit_intercept=True, copy_X = True, **kwargs,
                     ).fit(X, y)
                     del br.sigma_ # Default behavior is to return a full PxP covariance matrix for the coefs -- it's too big.
                     return br
+            elif method.lower() == "lasso":
+                def FUN(X,y):
+                    return sklearn.linear_model.Lasso(
+                        fit_intercept=True, **kwargs,
+                    ).fit(X, y)
             elif method == "LassoCV":
                 def FUN(X,y):
                     return sklearn.linear_model.LassoCV(
-                        fit_intercept=True,
+                        fit_intercept=True, **kwargs,
                     ).fit(X, y)
             elif method == "LassoLarsIC":
                 def FUN(X,y):
                     return sklearn.linear_model.LassoLarsIC(
-                        fit_intercept=True,
+                        fit_intercept=True, **kwargs,
                     ).fit(X, y)
             elif method == "RidgeCV":
                 def FUN(X,y):
@@ -407,6 +414,7 @@ class GRN:
                         fit_intercept=True,
                         alpha_per_target=False, 
                         store_cv_values=True, #this lets us use ._cv_values later for simulating data.
+                        **kwargs,
                     ).fit(X, y)
             elif method == "RidgeCVExtraPenalty":
                 def FUN(X,y):
@@ -415,6 +423,7 @@ class GRN:
                         fit_intercept=True,
                         alpha_per_target=False, 
                         store_cv_values=True, #this lets us use ._cv_values later for simulating data.
+                        **kwargs,
                     ).fit(X, y)
                     if rcv.alpha_ == np.max(rcv.alphas):
                         bigger_alphas = rcv.alpha_ * np.array([0.1, 1, 10, 100, 1000, 10000, 100000])
@@ -423,6 +432,7 @@ class GRN:
                             fit_intercept=True,
                             alpha_per_target=False, 
                             store_cv_values=True,
+                             **kwargs,
                         ).fit(X, y)
                     return rcv
             else:
@@ -593,9 +603,10 @@ class GRN:
             # Input is list of lists
             y = self.models.predict([p.split(",") for p in non_control])
             # Result is a dict with keys like "FOXA1_HNF4A"
-            predictions.X = starting_expression.X + np.array([
-                y[p[0].replace(",", "_")] if p[0] in self.models.pert_list else [0]*predictions.X.shape[1] for p in perturbations 
-            ])
+            predictions.X = starting_expression.X
+            for i, p in enumerate(perturbations): 
+                if p[0] in self.models.pert_list:
+                    predictions.X[i,:] = predictions.X[i, :] + y[p[0].replace(",", "_")]
         else: 
             if self.training_args["cell_type_sharing_strategy"] == "distinct":
                 cell_type_labels = predictions.obs[self.training_args["cell_type_labels"]]
@@ -855,6 +866,7 @@ class GRN:
             "OrthogonalMatchingPursuitCV",
             "ARDRegression",
             "BayesianRidge",
+            "LASSO",
             "LassoCV",
             "LassoLarsIC",
             "RidgeCV",

@@ -449,7 +449,7 @@ class GRN:
     def predict(
         self,
         perturbations: list,
-        starting_expression: anndata.AnnData = None,
+        predictions: anndata.AnnData = None,
         control_subtype = None,
         do_parallel: bool = True,
         add_noise: bool = False,
@@ -463,7 +463,7 @@ class GRN:
             perturbations (iterable of tuples): Iterable of tuples with gene and its expression after 
                 perturbation, e.g. {("POU5F1", 0.0), ("NANOG", 0.0), ("non_targeting", np.nan)}. Anything with
                 expression np.nan will be treated as a control, no matter the name.
-            starting_expression (anndata.AnnData): Expression prior to perturbation, in the same shape as the output predictions. If 
+            predictions (anndata.AnnData): Expression prior to perturbation, in the same shape as the output predictions. If 
                 None, starting state will be set to the mean of the training data control expression values.
             control_subtype (str): only controls with this prefix are considered. For example, 
                 in the Nakatake data there are different types of controls labeled "emerald" and "rtTA".
@@ -486,17 +486,16 @@ class GRN:
         columns_to_transfer = self.training_args["confounders"].copy() + ["perturbation_type"]
         if self.training_args["cell_type_sharing_strategy"] != "identical":
             columns_to_transfer.append(self.training_args["cell_type_labels"])
-        predictions = _prediction_prep(
-            nrow = len(perturbations),
-            columns_to_transfer = columns_to_transfer,
-            var = self.train.var.copy(),
-        )
 
         # Set up AnnData to contain starting expression: the state of the observations prior to perturbation. 
-        if starting_expression is None:
-            starting_expression = predictions.copy()
+        if predictions is None:
+            predictions = _prediction_prep(
+                nrow = len(perturbations),
+                columns_to_transfer = columns_to_transfer,
+                var = self.train.var.copy(),
+            )
             # Raw data are needed for GeneFormer feature extraction
-            starting_expression.raw = anndata.AnnData(
+            predictions.raw = anndata.AnnData(
                 X = scipy.sparse.dok_matrix((predictions.n_obs, self.train.raw.n_vars)),
                 obs = predictions.obs.copy(), 
                 var = self.train.raw.var.copy()
@@ -519,44 +518,40 @@ class GRN:
                     return X.toarray()
                 except:
                     return X
-            starting_expression_one = toArraySafe(self.train.X[  all_controls,:]).mean(axis=0, keepdims = True)
-            starting_expression_one_raw = toArraySafe(self.train.raw.X[  all_controls,:]).mean(axis=0, keepdims = True)
+            predictions_one = toArraySafe(self.train.X[  all_controls,:]).mean(axis=0, keepdims = True)
+            predictions_one_raw = toArraySafe(self.train.raw.X[  all_controls,:]).mean(axis=0, keepdims = True)
             for i in range(len(perturbations)):
                 idx_str = str(i)
-                starting_expression.X[i, :] = starting_expression_one.copy()
-                starting_expression.raw.X[i, :] = starting_expression_one_raw.copy()
+                predictions.X[i, :] = predictions_one.copy()
+                predictions.raw.X[i, :] = predictions_one_raw.copy()
                 for col in columns_to_transfer:
-                    starting_expression.obs.loc[idx_str, col] = starting_metadata_one.loc[:,col][0]
+                    predictions.obs.loc[idx_str, col] = starting_metadata_one.loc[:,col][0]
 
-        # Enforce that starting_expression has correct type, shape, metadata fields
-        assert type(starting_expression) == anndata.AnnData, f"starting_expression must be anndata; got {type(starting_expression)}"
-        assert starting_expression.obs.shape[0] == len(perturbations), "Starting expression must be None or an AnnData with one obs per perturbation."
-        assert all(c in set(starting_expression.obs.columns) for c in columns_to_transfer), f"starting_expression must be accompanied by these metadata fields: \n{'  '.join(columns_to_transfer)}"
-        starting_expression.obs["perturbation"] = "NA"
-        starting_expression.obs["expression_level_after_perturbation"] = -999
-        starting_expression.obs.index = [str(x) for x in range(len(starting_expression.obs.index))]
-        predictions.obs = starting_expression.obs.copy()
+        # Enforce that predictions has correct type, shape, metadata fields
+        assert type(predictions) == anndata.AnnData, f"predictions must be anndata; got {type(predictions)}"
+        assert predictions.obs.shape[0] == len(perturbations), "Starting expression must be None or an AnnData with one obs per perturbation."
+        assert all(c in set(predictions.obs.columns) for c in columns_to_transfer), f"predictions must be accompanied by these metadata fields: \n{'  '.join(columns_to_transfer)}"
+        predictions.obs["perturbation"] = "NA"
+        predictions.obs["expression_level_after_perturbation"] = -999
+        predictions.obs.index = [str(x) for x in range(len(predictions.obs.index))]
 
-        # At this point, the pre- and post-perturbation objects are in the right shape, and have most of the
-        # right metadata.  
-        # But they don't have the right perturbations listed in the metadata.
+        # At this point, predictions is in the right shape, and has most of the
+        # right metadata.
+        # But it doesn't have the right perturbations listed in the metadata.
         # And the perturbations have not been propagated to the features or the expression predictions. 
         
         # The following will implement perturbations, including altering metadata and features,
         # but not yet downstream expression.
         predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
-        starting_expression.obs["perturbation"] = starting_expression.obs["perturbation"].astype(str)
         for i in range(len(perturbations)):
             idx_str = str(i)
             # Expected input: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
             predictions.obs.loc[idx_str, "perturbation"]                        = perturbations[i][0]
             predictions.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[i][1]
-            starting_expression.obs.loc[idx_str, "perturbation"]                        = perturbations[i][0]
-            starting_expression.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[i][1]
             
         # Now predict the expression
         if self.training_args["method"].startswith("autoregressive"):
-            predictions = self.models.predict(perturbations = perturbations, starting_expression = starting_expression)
+            predictions = self.models.predict(perturbations = perturbations, predictions = predictions)
         elif self.training_args["method"].startswith("docker"):
             try:
                 _, docker_args, image_name = self.training_args["method"].split("__")
@@ -593,7 +588,7 @@ class GRN:
                 "Method in Docker container violated expectations of GGRN:" + \
                 "Variable names must be identical between training and test data."
         elif self.training_args["method"].startswith("DCDFG"):
-            predictions = self.models.predict(perturbations, baseline_expression = starting_expression.X)
+            predictions = self.models.predict(perturbations, baseline_expression = predictions.X)
         elif self.training_args["method"].startswith("GEARS"):
             non_control = [p for p in perturbations if all(g in self.models.pert_list for g in p[0].split(","))]
             # GEARS does not need expression level after perturbation
@@ -603,7 +598,7 @@ class GRN:
             # Input is list of lists
             y = self.models.predict([p.split(",") for p in non_control])
             # Result is a dict with keys like "FOXA1_HNF4A"
-            predictions.X = starting_expression.X
+            predictions.X = predictions.X
             for i, p in enumerate(perturbations): 
                 if p[0] in self.models.pert_list:
                     predictions.X[i,:] = predictions.X[i, :] + y[p[0].replace(",", "_")]
@@ -614,13 +609,12 @@ class GRN:
                 cell_type_labels = None
             for i in range(prediction_timescale):
                 starting_features = self.extract_features(
-                    train = starting_expression, 
+                    train = predictions, 
                     in_place=False, 
                 ).copy()   
                 y = self.predict_parallel(features = starting_features, cell_type_labels = cell_type_labels, do_parallel = do_parallel) 
                 for i in range(len(self.train.var_names)):
                     predictions.X[:,i] = y[i]
-                starting_expression = predictions.X
             # Set perturbed genes equal to user-specified expression, not whatever the endogenous level is predicted to be
             for i, pp in enumerate(perturbations):
                 if pp[0] in predictions.var_names:

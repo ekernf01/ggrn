@@ -91,7 +91,7 @@ class TestModelRuns(unittest.TestCase):
                 do_parallel=False, #catch bugs easier
             )
             x1 = grn.predict(perturbations = example_perturbations)  
-            x2 = grn.predict(perturbations = example_perturbations, starting_expression=train[0:len(example_perturbations), :].copy())
+            x2 = grn.predict(perturbations = example_perturbations, predictions=train[0:len(example_perturbations), :].copy())
     
     def test_simple_fit_and_predict(self):
         grn    = ggrn.GRN(smaller_real_data.copy())
@@ -332,17 +332,17 @@ class TestModelExactlyRightOnEasySimulation(unittest.TestCase):
             dummy_control = easy_simulated[0:3,:].copy()
             dummy_control.X = dummy_control.X*0
             dummy_control.obs["cell_type"] = 1
-            p = grn.predict([("g2", 0), ("g2", 1), ("g2", 2)], starting_expression=dummy_control.copy(), do_parallel=dp)
+            p = grn.predict([("g2", 0), ("g2", 1), ("g2", 2)], predictions=dummy_control.copy(), do_parallel=dp)
             np.testing.assert_almost_equal(p[:,"g4"].X.squeeze(), [0,2,4], decimal=1)
-            p = grn.predict([("g3", 0), ("g3", 1), ("g3", 2)], starting_expression=dummy_control.copy(), do_parallel=dp)
+            p = grn.predict([("g3", 0), ("g3", 1), ("g3", 2)], predictions=dummy_control.copy(), do_parallel=dp)
             np.testing.assert_almost_equal(p[:,"g4"].X.squeeze(), [0,0,0], decimal=1)
             # Cell type 2: only gene 3 affects gene 4
             dummy_control = easy_simulated[0:3,:].copy()
             dummy_control.X = dummy_control.X*0
             dummy_control.obs["cell_type"] = 2
-            p = grn.predict([("g2", 0), ("g2", 1), ("g2", 2)], starting_expression=dummy_control.copy(), do_parallel=dp)
+            p = grn.predict([("g2", 0), ("g2", 1), ("g2", 2)], predictions=dummy_control.copy(), do_parallel=dp)
             np.testing.assert_almost_equal(p[:,"g4"].X.squeeze(), [0,0,0], decimal=1)
-            p = grn.predict([("g3", 0), ("g3", 1), ("g3", 2)], starting_expression=dummy_control.copy(), do_parallel=dp)
+            p = grn.predict([("g3", 0), ("g3", 1), ("g3", 2)], predictions=dummy_control.copy(), do_parallel=dp)
             np.testing.assert_almost_equal(p[:,"g4"].X.squeeze(), [0,2,4], decimal=1)
 
 

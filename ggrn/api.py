@@ -12,6 +12,7 @@ import sklearn.dummy
 import numpy as np
 import scipy.sparse
 import json
+import gc
 from torch.cuda import is_available as is_gpu_available
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
@@ -139,6 +140,7 @@ class GRN:
         """
         if feature_extraction.lower() == "geneformer":
             assert predict_self, "GGRN cannot exclude autoregulation when using geneformer for feature extraction."
+            assert prediction_timescale == 1, "GGRN cannot do iterative prediction when using geneformer for feature extraction."
         if network_prior is None:
             network_prior = "ignore" if self.network is None else "restrictive"
         if network_prior != "ignore":
@@ -456,6 +458,7 @@ class GRN:
         noise_sd: float = None,
         seed: int = 0,
         prediction_timescale: int = 1,
+        feature_extraction_requires_raw_data: bool = False
     ):
         """Predict expression after new perturbations.
 
@@ -472,7 +475,8 @@ class GRN:
                 where e is IID Gaussian with variance equal to the estimated residual variance.
             noise_sd (bool): sd of the variable e described above. Defaults to estimates from the fitted models.
             seed (int): RNG seed.
-            prediction_timescale (int)
+            prediction_timescale (int): how many time-steps forward to predict.
+            feature_extraction_requires_raw_data (bool): We recommend to set to True with GeneFormer and False otherwise.
         """
         # Check inputs
         if type(self.models)==list and not self.models:
@@ -486,20 +490,19 @@ class GRN:
         columns_to_transfer = self.training_args["confounders"].copy() + ["perturbation_type"]
         if self.training_args["cell_type_sharing_strategy"] != "identical":
             columns_to_transfer.append(self.training_args["cell_type_labels"])
-
-        # Set up AnnData to contain starting expression: the state of the observations prior to perturbation. 
         if predictions is None:
             predictions = _prediction_prep(
                 nrow = len(perturbations),
                 columns_to_transfer = columns_to_transfer,
                 var = self.train.var.copy(),
             )
-            # Raw data are needed for GeneFormer feature extraction
-            predictions.raw = anndata.AnnData(
-                X = scipy.sparse.dok_matrix((predictions.n_obs, self.train.raw.n_vars)),
-                obs = predictions.obs.copy(), 
-                var = self.train.raw.var.copy()
-            ) 
+            # Raw data are needed for GeneFormer feature extraction, but otherwise, save RAM by omitting
+            if feature_extraction_requires_raw_data:
+                predictions.raw = anndata.AnnData(
+                    X = scipy.sparse.dok_matrix((predictions.n_obs, self.train.raw.n_vars)),
+                    obs = predictions.obs.copy(), 
+                    var = self.train.raw.var.copy()
+                )
             # We allow users to select a subset of controls using a prefix, e.g. GFP overexpression instead of DMSO. 
             if control_subtype is None or isnan_safe(control_subtype):
                 all_controls = self.train.obs["is_control"] 
@@ -519,11 +522,13 @@ class GRN:
                 except:
                     return X
             predictions_one = toArraySafe(self.train.X[  all_controls,:]).mean(axis=0, keepdims = True)
-            predictions_one_raw = toArraySafe(self.train.raw.X[  all_controls,:]).mean(axis=0, keepdims = True)
+            if feature_extraction_requires_raw_data:
+                predictions_one_raw = toArraySafe(self.train.raw.X[  all_controls,:]).mean(axis=0, keepdims = True)
             for i in range(len(perturbations)):
                 idx_str = str(i)
                 predictions.X[i, :] = predictions_one.copy()
-                predictions.raw.X[i, :] = predictions_one_raw.copy()
+                if feature_extraction_requires_raw_data:
+                    predictions.raw.X[i, :] = predictions_one_raw.copy()
                 for col in columns_to_transfer:
                     predictions.obs.loc[idx_str, col] = starting_metadata_one.loc[:,col][0]
 
@@ -611,7 +616,10 @@ class GRN:
                 starting_features = self.extract_features(
                     train = predictions, 
                     in_place=False, 
-                ).copy()   
+                ).copy()
+                if feature_extraction_requires_raw_data:
+                    del predictions.raw # save memory: raw data are no longer needed after feature extraction
+                gc.collect()
                 y = self.predict_parallel(features = starting_features, cell_type_labels = cell_type_labels, do_parallel = do_parallel) 
                 for i in range(len(self.train.var_names)):
                     predictions.X[:,i] = y[i]

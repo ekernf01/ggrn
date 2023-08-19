@@ -624,8 +624,6 @@ class GRN:
                 y = self.predict_parallel(features = starting_features, cell_type_labels = cell_type_labels, do_parallel = do_parallel) 
                 for i in range(len(self.train.var_names)):
                     predictions.X[:,i] = y[i]
-                    y[i] = None
-                    gc.collect()
             # Set perturbed genes equal to user-specified expression, not whatever the endogenous level is predicted to be
             for i, pp in enumerate(perturbations):
                 if pp[0] in predictions.var_names:

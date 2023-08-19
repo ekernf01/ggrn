@@ -503,7 +503,8 @@ class GRN:
                     obs = predictions.obs.copy(), 
                     var = self.train.raw.var.copy()
                 )
-            # We allow users to select a subset of controls using a prefix, e.g. GFP overexpression instead of DMSO. 
+            # We allow users to select a subset of controls using a prefix in .obs["perturbation"], e.g. 
+            # GFP overexpression instead of parental cell line in Nakatake. 
             if control_subtype is None or isnan_safe(control_subtype):
                 all_controls = self.train.obs["is_control"] 
             else:
@@ -545,7 +546,7 @@ class GRN:
         # But it doesn't have the right perturbations listed in the metadata.
         # And the perturbations have not been propagated to the features or the expression predictions. 
         
-        # The following will implement perturbations, including altering metadata and features,
+        # Now implement perturbations, including altering metadata and features,
         # but not yet downstream expression.
         predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
         for i in range(len(perturbations)):
@@ -623,6 +624,8 @@ class GRN:
                 y = self.predict_parallel(features = starting_features, cell_type_labels = cell_type_labels, do_parallel = do_parallel) 
                 for i in range(len(self.train.var_names)):
                     predictions.X[:,i] = y[i]
+                    y[i] = None
+                    gc.collect()
             # Set perturbed genes equal to user-specified expression, not whatever the endogenous level is predicted to be
             for i, pp in enumerate(perturbations):
                 if pp[0] in predictions.var_names:

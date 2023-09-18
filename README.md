@@ -1,6 +1,6 @@
 ## A grammar of inference methods for gene regulatory networks
 
-GGRN is a set of Python modules that together allow users to flexibly combine traits of different methods for gene regulatory network inference. A full exposition is provided in `GGRN.md`, which is the raw source for the appendix from our  preprint (not up at time of writing). This is motivated by our [benchmarking project](https://github.com/ekernf01/perturbation_benchmarking).
+GGRN is a set of Python modules that together allow users to flexibly combine traits of different methods for gene regulatory network inference. A full exposition is provided in [`GGRN.md`](https://github.com/ekernf01/ggrn/blob/main/GGRN.md), which is the raw source for the appendix from our  preprint (not up at time of writing). This is motivated by our [benchmarking project](https://github.com/ekernf01/perturbation_benchmarking).
 
 ### Installation
 
@@ -53,7 +53,7 @@ predictions = grn.predict([("POU5F1", 0), ("NANOG", 0)])
 
 ### Detailed documentation
 
-From the grammar set out in our technical documentation, many of the combinations that can be specified either make no sense, or would be very complex to implement. The current software offers only subsets of features. These are implemented via several separate backends. 
+From the grammar set out in our [formal documentation](https://github.com/ekernf01/ggrn/blob/main/GGRN.md), many of the combinations that can be specified either make no sense, or would be very complex to implement. The current software offers only subsets of features. These are implemented via several separate backends. 
 
 With apologies, the `method` arg of the `grn.fit` is currently used to select both the backend AND the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility. Where `regression_method` is mentioned below, it currently corresponds to the `method` arg of `GRN.fit`.
 

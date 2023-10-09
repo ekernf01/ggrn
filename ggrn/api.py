@@ -310,7 +310,11 @@ class GRN:
             pert_data = GEARSPertData("./ggrn_gears_input", default_pert_graph = True)
             pert_data.new_data_process(dataset_name = 'current', adata = self.train)
             pert_data.load(data_path = './ggrn_gears_input/current')
-            pert_data.prepare_split(split = 'simulation', seed = kwargs["seed"] )
+            # For the data split, we use train_gene_set_size = 0.95 instead of the default.
+            # This is not documented; however, it has the effect of using more of the input for train and
+            # validation instead of the test set. A test set has already been reserved by our 
+            # benchmarking framework in a typical use of this code. 
+            pert_data.prepare_split(split = 'simulation', train_gene_set_size = 0.95, seed = kwargs["seed"] )
             pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
             self.models = GEARS(pert_data, device = kwargs["device"])
             self.models.model_initialize(hidden_size = kwargs["hidden_size"])

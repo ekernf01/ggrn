@@ -296,7 +296,7 @@ class GRN:
                 "test_batch_size": 128,
                 "hidden_size": 64,
                 "device": "cuda" if is_gpu_available() else "cpu",
-                "epochs": 20,
+                "epochs": 15,
             }
             if not kwargs:
                 kwargs = dict()
@@ -314,7 +314,7 @@ class GRN:
             # This is not documented; however, it has the effect of using more of the input for train and
             # validation instead of the test set. A test set has already been reserved by our 
             # benchmarking framework in a typical use of this code. 
-            pert_data.prepare_split(split = 'simulation', train_gene_set_size = 0.95, seed = kwargs["seed"] )
+            pert_data.prepare_split(split = 'no_test', seed = kwargs["seed"] )
             pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
             self.models = GEARS(pert_data, device = kwargs["device"])
             self.models.model_initialize(hidden_size = kwargs["hidden_size"])
@@ -608,10 +608,9 @@ class GRN:
             # Input is list of lists
             y = self.models.predict([p.split(",") for p in non_control])
             # Result is a dict with keys like "FOXA1_HNF4A"
-            predictions.X = predictions.X
             for i, p in enumerate(perturbations): 
                 if p[0] in self.models.pert_list:
-                    predictions.X[i,:] = predictions.X[i, :] + y[p[0].replace(",", "_")]
+                    predictions.X[i,:] = y[p[0].replace(",", "_")]
         else: 
             if self.training_args["cell_type_sharing_strategy"] == "distinct":
                 cell_type_labels = predictions.obs[self.training_args["cell_type_labels"]]

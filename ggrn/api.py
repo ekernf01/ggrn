@@ -278,7 +278,7 @@ class GRN:
             pert_frequencies = self.train.obs['condition'].value_counts()
             singleton_perts = pert_frequencies[pert_frequencies==1].index
             print(f"Marking {len(singleton_perts)} singleton perturbations as controls in the training data.", flush=True)
-            self.train[~self.train.obs.condition.isin(singleton_perts), :].obs["condition"] = "ctrl"
+            self.train.obs.loc[self.train.obs.condition.isin(singleton_perts), "condition"] = "ctrl"
             # Clean up any previous runs
             try:
                 shutil.rmtree("./ggrn_gears_input")

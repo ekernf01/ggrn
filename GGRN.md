@@ -102,13 +102,13 @@ GGRN can describe methods by:
 - `prediction_timescale`: positive int
 - `regression_method`: A method from sklearn, e.g. "KernelRidge"
 - `eligible_regulators`: A list of all genes to use as features; often a list of all TFs
-- `feature_extraction`: "mRNA", "pca", "armada", "GEARS", or "GeneFormer"
+- `feature_extraction`: "mRNA" or "GeneFormer", possibly with additional options in the future
 - `predict_self`: False to disallow autoregulation, True otherwise
 - `low_dimensional_structure`: "none", "dynamics", or "postprocessing"
 - `low_dimensional_training`: "user", "svd", "supervised"
 - `pruning_strategy`: "none", "prune_and_refit"
 - `network`: An edge list containing regulators, targets, weights (optional), and cell types (optional)
-- `cell_type_sharing_strategy`: "identical", "distinct"
+- `cell_type_sharing_strategy`: "identical", "distinct", possibly with additional options in the future
 
 #### Limitations
 

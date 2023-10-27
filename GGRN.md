@@ -112,9 +112,10 @@ GGRN can describe methods by:
 
 #### Limitations
 
-GGRN cannot fully represent the distinctive features of many methods. Some specific limitations:
+This document outlines more features than are yet implemented in our software. Separate [documentation](http://github.com/ekernf01/ggrn) describes a subset of options that are currently available.
 
-- This document outlines more features than are yet implemented in our software. Separate [documentation](http://github.com/ekernf01/ggrn) describes a subset of options that are currently available.
+GGRN cannot fully represent the distinctive features of most methods. Some specific examples where GGRN falls short:
+
 - GGRN is limited to discrete-time by the initial matching step, and can only approximate continuous-time methods (PRESCIENT, Dictys, Dynamo). 
 - GGRN cannot specify the exact network architectures used in DCD-FG's factor graph, PRESCIENT's potential function, or GEARS.
 - GGRN cannot capture how PRESCIENT's optimal transport feature is fully, beautifully integrated: PRESCIENT selects $j$ given $i$ not by matching $X_i(T-\delta T)$ to $X_j(T)$, but rather by matching $F(X_i(T-\delta T))$ to $X_j(T)$. This requires jointly optimizing over both $F$ and the matching method's output. 

@@ -55,7 +55,7 @@ Sparsity can arise from certain choices of `regression_method` described above, 
 
 If `pruning_strategy` is `"prune_and_refit"`, then all coefficients with magnitude less than `pruning_parameter` are fixed to zero, and the models are re-fit.
 
-#### Feature selection and autoregulation
+#### Feature selection
 
 Some models (CellOracle, Dictys) use only TF's as features when learning $F$. Others (e.g. DCD-FG) use all genes. We include a keyword arg `eligible_regulators` which accepts a list of all features to use when learning $F$. 
 

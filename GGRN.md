@@ -40,7 +40,7 @@ Some methods' estimates of $F$ are heavily constrained by low-rank structure. Fu
 
 This variety can be mostly captured by two key questions. First, can the dynamics be fully described by an action on the low-dimensional space? For CellOracle, the answer is "no"; for ARMADA, PRESCIENT, and DCD-FG, it is "yes". Second, how are the low-dimensional projections learned? For ARMADA, they are fixed; for CellOracle and PRESCIENT, they are learned by PCA; for DCD-FG, they are learned by back-propagating errors. We formalize these options with keyword arguments:
 
-- `low_dimensional_structure` can take values `none`, `dynamics` ($F(X) = R(G(Q(X)))$), or `postprocessing` ($F(X) = R(Q(G(X)))$).
+- `low_dimensional_structure` can take values `none`,( $F(X) = G(X)$ ), `dynamics` ( $F(X) = R(G(Q(X)))$ ), or `postprocessing` ( $F(X) = R(Q(G(X)))$ ).
 - `low_dimensional_training` can take values `user` ($Q$ is the pseudo-inverse of a user-provided matrix), `svd` (Q is learned by taking an SVD of the training data), or `supervised` ($Q$ and $R$ are learned from the input-output pairs). 
 - `low_dimensional_value` can be a positive integer giving the latent dimension or an entire matrix if `low_dimensional_training` is `user`.
  

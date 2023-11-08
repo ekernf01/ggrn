@@ -116,7 +116,8 @@ This document outlines more features than are yet implemented in our software. S
 
 GGRN cannot fully represent the distinctive features of most methods. Some specific examples where GGRN falls short:
 
-- GGRN is limited to discrete-time by the initial matching step, and can only approximate continuous-time methods (PRESCIENT, Dictys, Dynamo). 
+- This document outlines more features than are yet implemented in our software. Separate [documentation](http://github.com/ekernf01/ggrn) describes a subset of options that are currently available.
+- GGRN is limited to discrete-time by the initial matching step, and can only approximate continuous-time methods (PRESCIENT, Dictys, Dynamo). For a detailed explanation of connections between discrete-time linear models and continuous-time nonlinear models consult Oates & Mukherjee 2012. 
 - GGRN cannot specify the exact network architectures used in DCD-FG's factor graph, PRESCIENT's potential function, or GEARS.
 - GGRN cannot capture how PRESCIENT's optimal transport feature is fully, beautifully integrated: PRESCIENT selects $j$ given $i$ not by matching $X_i(T-\delta T)$ to $X_j(T)$, but rather by matching $F(X_i(T-\delta T))$ to $X_j(T)$. This requires jointly optimizing over both $F$ and the matching method's output. 
 - GGRN lacks any description of proliferation and apoptosis. PRESCIENT includes features for modeling proliferation and apoptosis, which are essential to its performance. 
@@ -124,3 +125,7 @@ GGRN cannot fully represent the distinctive features of most methods. Some speci
 - GGRN does not describe any motif analysis or chromatin data analysis; systematizing that domain would be a separate endeavor. To highlight specific important features not included in GGRN: CellOracle, SCENIC+, and Dictys include steps for motif analysis and data-driven pairing of enhancers with promoters. ARMADA emphasizes promoter annotation, models of motif evolution, and motif positioning relative to the promoter. 
 - GGRN cannot specify the details of foundation models pre-trained on large collections of transcriptome data; systematizing that domain would be a separate endeavor.
 - GGRN does not describe acyclic penalties such as those used by DCD-FG and related methods.
+
+### References
+
+- Oates, Chris. J., & Mukherjee, S. (2012). Network inference and biological dynamics. In The Annals of Applied Statistics (Vol. 6, Issue 3). Institute of Mathematical Statistics. https://doi.org/10.1214/11-aoas532

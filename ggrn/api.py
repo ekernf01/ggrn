@@ -36,7 +36,11 @@ except ImportError:
     HAS_GENEFORMER = False
 
 # These govern expectations about data format for regulatory networks and perturbation data.
-import load_networks
+try:
+    import load_networks
+    HAS_NETWORKS = True
+except:
+    HAS_NETWORKS = False
 try:
     import load_perturbations
     CAN_VALIDATE = True
@@ -49,7 +53,7 @@ class GRN:
     """
     def __init__(
         self, train: anndata.AnnData, 
-        network: load_networks.LightNetwork = None, 
+        network = None, 
         eligible_regulators: list = None,
         validate_immediately: bool = True,
         feature_extraction: str = "mrna",
@@ -58,8 +62,9 @@ class GRN:
 
         Args:
             train (anndata.AnnData): Training data. Should conform to the requirements in load_perturbations.check_perturbation_dataset().
-            network (pd.DataFrame, optional): LightNetwork object containing prior knowledge about regulators and targets.
+            network (load_networks.LightNetwork, optional): LightNetwork object containing prior knowledge about regulators and targets.
             eligible_regulators (List, optional): List of gene names that are allowed to be regulators. Defaults to all genes.
+            validate_immediately (bool, optional): check validity input object?
             feature_extraction (str, optional): How to extract features. Defaults to "tf_rna", which uses the mRNA level of the TF. You 
                 can also specify "geneformer" to use GeneFormer to extract cell embeddings. 
 
@@ -69,7 +74,7 @@ class GRN:
             self.train.X = self.train.X.toarray()
         except AttributeError:
             pass
-        assert network is None or type(network)==load_networks.LightNetwork
+        assert network is None or type(network)==load_networks.LightNetwork, "Network must be of type LightNetwork (see our load_networks package)."
         self.network = network 
         self.models = [None for _ in self.train.var_names]
         self.training_args = {}
@@ -758,6 +763,7 @@ class GRN:
         """
 
         if pruning_strategy == "prune_and_refit":
+            assert HAS_NETWORKS, "Pruning network structure is not available without our load_networks module."
             print("Fitting")
             self.models = self.fit_models_parallel(
                 FUN = FUN, 

@@ -1,0 +1,1 @@
+An example of how to call GGRN inside a Docker container as a backend for another copy of GGRN. We are doing this to facilitate fair time/memory benchmarks against other Dockerized methods, but it may also be useful as an example of how to make a Docker image that conforms to the expectations set out in our benchmarking project. 

@@ -131,6 +131,6 @@ Some technical notes:
 - Running GEARS will generate certain files and folders as a side effect; we save training data to a folder "ggrn_gears_input". This folder is normally deleted after use, but if a run crashes, it may need to be deleted. Otherwise, it can interfere with future runs. This can also create race conditions, and we do not support calling GEARS from multiple processes that share a working directory. 
 - A GPU is typically required to use GEARS, but we find it is possible to use GEARS on a CPU. Depending on the version, this may require minor changes to GEARS source code: replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
 
-#### Adding a new backend
+#### Arbitrary backends via Docker:
 
-You can add your own backend using Docker: see our [tutorial](https://github.com/ekernf01/ggrn_docker_backend).
+You can add your own backend using Docker: consult `ggrn_docker_backend/README.md` in this repo.

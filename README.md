@@ -74,11 +74,14 @@ The initial implementation requires steady-state matching; it ignores the passag
 - `network`: An edge list containing regulators, targets, weights (optional), and cell types (optional).  
 - `cell_type_sharing_strategy`: "identical", "distinct"
 
-Backend #1 is also the way GGRN can use GeneFormer. Following [issue 44](https://huggingface.co/ctheodoris/Geneformer/discussions/44) and [issue 53](https://huggingface.co/ctheodoris/Geneformer/discussions/53), we obtain post-perturbation cell embeddings from GeneFormer, then we train simple regression models to convert the post-perturbation cell embeddings to gene expression. Note that "post-perturbation cell embeddings" could be constructed from training data in two ways. One option is to simply embed the post-perturbation expression data. A second option is to use GeneFormer's typical tactic of starting from control data, then altering the rank order to put overexpressed genes first and deleted genes last, and embedding the result. Only the second option is available when making predictions, so we only use the second option during training.
+Backend #1 is also the way GGRN can use GeneFormer. Following [issue 44](https://huggingface.co/ctheodoris/Geneformer/discussions/44) and [issue 53](https://huggingface.co/ctheodoris/Geneformer/discussions/53), we obtain post-perturbation cell embeddings from GeneFormer, then we train simple regression models to convert the post-perturbation cell embeddings to gene expression. 
 
-Because the GeneFormer-derived features are not interpretable as individual gene activities, it is not possible to constrain the list of eligible regulators in any way: `eligible_regulators`, `predict_self`, and `network` cannot be used.
+A few technical notes: 
 
-A GPU is required to use GeneFormer, but we find it is possible to use GeneFormer on a CPU if you replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
+- Note that "post-perturbation cell embeddings" could be constructed from training data in two ways. One option is to simply encode the expression data, since perturbation effects are already present in the expression data. A second option is to use GeneFormer's typical tactic of altering the rank order to put overexpressed genes first and deleted genes last. Only the second option is available when making predictions, so we only use the second option during training.
+- Because the GeneFormer-derived features are not interpretable as individual gene activities, it is not possible to constrain the list of eligible regulators in any way: `eligible_regulators`, `predict_self`, and `network` cannot be used.
+- A GPU is required to use GeneFormer, but we find it is possible to use GeneFormer on a CPU if you replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
+- Certain files are saved to disk as a necessary part of tokenizing data for GeneFormer. These are saved in "geneformer_loom_data" and "geneformer_tokenized_data". If a run crashes, these files may not be cleaned up, and they may need to be manually removed. This step could also cause race conditions when multiple processes are calling GGRN's GeneFormer feature extraction at the same time. 
 
 #### Backend 2: DCD-FG 
 
@@ -120,7 +123,13 @@ For more information on this model, see [here](http://github.com/ekernf01/ggrn_b
 
 #### Backend 4: GEARS
 
-GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. The `eligible_regulators` arg behaves as expected and other GGRN args are ignored.  GEARS arguments can be passed via `kwargs`. A GPU is typically required to use GEARS, but we find it is possible to use GEARS on a CPU with minor changes to GEARS source code: replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
+GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. GGRN args are ignored. GEARS arguments, such as embedding dimension or batch size, can be passed to `grn.fit` via `kwargs`. 
+
+Some technical notes: 
+
+- GEARS requires an internet connection (to download the GO graph). 
+- Running GEARS will generate certain files and folders as a side effect; we save training data to a folder "ggrn_gears_input". This folder is normally deleted after use, but if a run crashes, it may need to be deleted. Otherwise, it can interfere with future runs. This can also create race conditions, and we do not support calling GEARS from multiple processes that share a working directory. 
+- A GPU is typically required to use GEARS, but we find it is possible to use GEARS on a CPU. Depending on the version, this may require minor changes to GEARS source code: replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
 
 #### Adding a new backend
 

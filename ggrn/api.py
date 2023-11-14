@@ -16,8 +16,9 @@ import gc
 from torch.cuda import is_available as is_gpu_available
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
+    HAS_DCDFG = True 
 except ImportError:
-    print("DCD-FG wrapper is not installed, and related models (DCD-FG, NOTEARS) will not be available.")
+    HAS_DCDFG = False 
 try:
     from gears import PertData as GEARSPertData
     from gears import GEARS
@@ -30,7 +31,8 @@ try:
 except ImportError:
     HAS_AUTOREGRESSIVE = False
 try:
-    from geneformer_embeddings import geneformer_embeddings
+    from geneformer_embeddings import geneformer_embeddings, geneformer_hyperparameter_optimization
+
     HAS_GENEFORMER = True
 except ImportError:
     HAS_GENEFORMER = False
@@ -79,13 +81,13 @@ class GRN:
         self.models = [None for _ in self.train.var_names]
         self.training_args = {}
         self.features = None
+        self.geneformer_finetuned = None
         self.feature_extraction = "mrna" if (feature_extraction is None or isnan_safe(feature_extraction)) else feature_extraction
         self.eligible_regulators = eligible_regulators
         if validate_immediately:
             assert self.check_perturbation_dataset()
         if self.feature_extraction.lower() in {"geneformer"}:
             assert self.eligible_regulators is None, "You may not constrain the set of regulators when using GeneFormer feature extraction."
-
         return
 
     def fit(
@@ -226,7 +228,9 @@ class GRN:
             #     run next sentence prediction on test data
             #     decode into expression
         elif method.startswith("docker"):
-            # There is no actual training here, just copying data. Training happens when you call predict.
+            # There is no actual training here, just copying data. 
+            # Training happens when you call predict.
+            # This is because we do not want to try to save trained models inside a container and return control flow to Python while leaving the container intact.
             try:
                 shutil.rmtree("from_to_docker")
             except:
@@ -325,6 +329,7 @@ class GRN:
             self.models.model_initialize(hidden_size = kwargs["hidden_size"])
             self.models.train(epochs = kwargs["epochs"])
         elif method.startswith("DCDFG"):
+            assert HAS_DCDFG, "DCD-FG wrapper is not installed, and related models (DCD-FG, NOTEARS) cannot be used."
             np.testing.assert_equal(
                 np.array(self.eligible_regulators), 
                 np.array(self.train.var_names),     
@@ -586,7 +591,7 @@ class GRN:
                 f" {self.training_args['docker_args']} " + \
                 f" {image_name}"
             print(f"Running command: \n{cmd}")
-            os.system(cmd) 
+            os.system(cmd)
             assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad"
             predictions = sc.read_h5ad("from_to_docker/predictions.h5ad")
             predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
@@ -656,13 +661,14 @@ class GRN:
                 predictions.X[:,i] = predictions.X[:,i] + np.random.standard_normal(len(predictions.X[:,i]))*noise_sd
         return predictions
 
-    def extract_features(self, train: anndata.AnnData = None, in_place: bool = True):
+    def extract_features(self, train: anndata.AnnData = None, in_place: bool = True, geneformer_finetune_labels: str = "louvain"):
         """Create a feature matrix where each row matches a row in self.train and
         each column represents a feature in self.eligible_regulators.
 
         Args:
             train: (anndata.AnnData, optional). Expression data to use in feature extraction. Defaults to self.train.
             in_place (bool, optional): If True (default), put results in self.features. Otherwise, return results as a matrix. 
+            geneformer_finetune_labels (str, optional): Labels to use for fine-tuning geneformer. 
         """
         if train is None:
             train = self.train # shallow copy is best here
@@ -690,13 +696,38 @@ class GRN:
             if not HAS_GENEFORMER:
                 raise ImportError("GeneFormer backend is not installed, and related models will not be available.")
             self.eligible_regulators = list(range(256))
+            file_with_tokens = geneformer_embeddings.tokenize(train, geneformer_finetune_labels)
+            if geneformer_finetune_labels not in train.obs.columns:
+                print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. Embeddings will be extracted from the pre-trained model.")
+                geneformer_finetune_labels = None
+            # Fine-tune if 1) possible and 2) not done already
+            if geneformer_finetune_labels is not None and self.geneformer_finetuned is None:
+                optimal_hyperparameters = geneformer_hyperparameter_optimization.optimize_hyperparameters(file_with_tokens, n_cpu = 15)
+                self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
+                    file_with_tokens = file_with_tokens, 
+                    column_with_labels = geneformer_finetune_labels,
+                    max_input_size = 2 ** 11,  # 2048
+                    max_lr                = optimal_hyperparameters[2]["learning_rate"],
+                    freeze_layers = 2,
+                    geneformer_batch_size = optimal_hyperparameters[2]["per_device_train_batch_size"],
+                    lr_schedule_fn        = optimal_hyperparameters[2]["lr_scheduler_type"],
+                    warmup_steps          = optimal_hyperparameters[2]["warmup_steps"],
+                    epochs                = optimal_hyperparameters[2]["num_train_epochs"],
+                    optimizer = "adamw",
+                    GPU_NUMBER = [], 
+                    seed                  = 42, 
+                    weight_decay          = optimal_hyperparameters[2]["weight_decay"],
+                )
             features = geneformer_embeddings.get_geneformer_perturbed_cell_embeddings(
-                adata_train = train,
+                adata_train=train,
+                file_with_tokens = file_with_tokens,
                 assume_unrecognized_genes_are_controls = True,
-                apply_perturbation_explicitly = True,
+                apply_perturbation_explicitly = True, 
+                file_with_finetuned_model = self.geneformer_finetuned
             )
         else:
-            raise NotImplementedError("Only 'mrna' is available so far for feature extraction methods.")
+            raise NotImplementedError("Only 'mrna' and 'geneformer' are available so far for feature extraction methods.")
+        # Return or add to GRN object
         if in_place:
             self.features = features # shallow copy is best here too
         else:

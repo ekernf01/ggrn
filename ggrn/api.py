@@ -13,6 +13,7 @@ import numpy as np
 import scipy.sparse
 import json
 import gc
+import ray.tune
 from torch.cuda import is_available as is_gpu_available
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
@@ -661,7 +662,7 @@ class GRN:
                 predictions.X[:,i] = predictions.X[:,i] + np.random.standard_normal(len(predictions.X[:,i]))*noise_sd
         return predictions
 
-    def extract_features(self, train: anndata.AnnData = None, in_place: bool = True, geneformer_finetune_labels: str = "louvain"):
+    def extract_features(self, train: anndata.AnnData = None, in_place: bool = True, geneformer_finetune_labels: str = "louvain", n_cpu = 15):
         """Create a feature matrix where each row matches a row in self.train and
         each column represents a feature in self.eligible_regulators.
 
@@ -696,28 +697,36 @@ class GRN:
             if not HAS_GENEFORMER:
                 raise ImportError("GeneFormer backend is not installed, and related models will not be available.")
             self.eligible_regulators = list(range(256))
-            file_with_tokens = geneformer_embeddings.tokenize(train, geneformer_finetune_labels)
+            file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels)
             if geneformer_finetune_labels not in train.obs.columns:
                 print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. Embeddings will be extracted from the pre-trained model.")
                 geneformer_finetune_labels = None
             # Fine-tune if 1) possible and 2) not done already
             if geneformer_finetune_labels is not None and self.geneformer_finetuned is None:
-                optimal_hyperparameters = geneformer_hyperparameter_optimization.optimize_hyperparameters(file_with_tokens, n_cpu = 15)
-                self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
-                    file_with_tokens = file_with_tokens, 
-                    column_with_labels = geneformer_finetune_labels,
-                    max_input_size = 2 ** 11,  # 2048
-                    max_lr                = optimal_hyperparameters[2]["learning_rate"],
-                    freeze_layers = 2,
-                    geneformer_batch_size = optimal_hyperparameters[2]["per_device_train_batch_size"],
-                    lr_schedule_fn        = optimal_hyperparameters[2]["lr_scheduler_type"],
-                    warmup_steps          = optimal_hyperparameters[2]["warmup_steps"],
-                    epochs                = optimal_hyperparameters[2]["num_train_epochs"],
-                    optimizer = "adamw",
-                    GPU_NUMBER = [], 
-                    seed                  = 42, 
-                    weight_decay          = optimal_hyperparameters[2]["weight_decay"],
-                )
+                try:
+                    optimal_hyperparameters = geneformer_hyperparameter_optimization.optimize_hyperparameters(file_with_tokens, column_with_labels = geneformer_finetune_labels, n_cpu = n_cpu)
+                    self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
+                        file_with_tokens = file_with_tokens, 
+                        column_with_labels = geneformer_finetune_labels,
+                        max_input_size = 2 ** 11,  # 2048
+                        max_lr                = optimal_hyperparameters[2]["learning_rate"],
+                        freeze_layers = 2,
+                        geneformer_batch_size = optimal_hyperparameters[2]["per_device_train_batch_size"],
+                        lr_schedule_fn        = optimal_hyperparameters[2]["lr_scheduler_type"],
+                        warmup_steps          = optimal_hyperparameters[2]["warmup_steps"],
+                        epochs                = optimal_hyperparameters[2]["num_train_epochs"],
+                        optimizer = "adamw",
+                        GPU_NUMBER = [], 
+                        seed                  = 42, 
+                        weight_decay          = optimal_hyperparameters[2]["weight_decay"],
+                    )
+                except ray.tune.error.TuneError as e:
+                    print(f"Hyperparameter selection failed with error {repr(e)}. Fine-tuning with default hyperparameters.")
+                    self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
+                        file_with_tokens = file_with_tokens, 
+                        column_with_labels = geneformer_finetune_labels,
+                    )
+
             features = geneformer_embeddings.get_geneformer_perturbed_cell_embeddings(
                 adata_train=train,
                 file_with_tokens = file_with_tokens,

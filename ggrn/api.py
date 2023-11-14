@@ -13,7 +13,7 @@ import numpy as np
 import scipy.sparse
 import json
 import gc
-import ray.tune
+import ray.tune.error
 from torch.cuda import is_available as is_gpu_available
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
@@ -699,7 +699,9 @@ class GRN:
             self.eligible_regulators = list(range(256))
             file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels)
             if geneformer_finetune_labels not in train.obs.columns:
-                print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. Embeddings will be extracted from the pre-trained model.")
+                print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. "
+                      "Embeddings will be extracted from the pre-trained model. If this message occurs during prediction, the fine-tuning "
+                      "may have taken place already during training, and the model will be re-used.")
                 geneformer_finetune_labels = None
             # Fine-tune if 1) possible and 2) not done already
             if geneformer_finetune_labels is not None and self.geneformer_finetuned is None:

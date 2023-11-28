@@ -19,7 +19,9 @@ do
 done
 ```
 
-### Usage
+### Usage tutorial
+
+Here is a simple example of how to fit a LASSO model to predict each gene from the other genes.
 
 ```python
 
@@ -51,7 +53,7 @@ grn.fit(
 predictions = grn.predict([("POU5F1", 0), ("NANOG", 0)])
 ```
 
-### Detailed documentation
+### Detailed reference
 
 From the grammar set out in our [formal documentation](https://github.com/ekernf01/ggrn/blob/main/GGRN.md), many of the combinations that can be specified either make no sense, or would be very complex to implement. The current software offers only subsets of features. These are implemented via several separate backends. 
 
@@ -59,9 +61,9 @@ With apologies, the `method` arg of the `grn.fit` is currently used to select bo
 
 #### Backend 1: steady state 
 
-The initial implementation requires steady-state matching; it ignores the passage of time. It offers flexible regression, feature extraction via geneformer, rudimentary use of prior network structure, rudimentary cell type specificity, and predictions after just one step forward. It has no scheme for matching treatment samples to specific controls, no acyclic penalty, no low-dimensional structure, and no biological noise. It accepts the following inputs.
+The initial implementation offers several matching methods; flexible regression; simple feature extraction or feature extraction via geneformer; rudimentary use of prior network structure; rudimentary cell type specificity; and predictions after just one step forward. It has no scheme for matching treatment samples to specific controls, no acyclic penalty, no low-dimensional structure, and no biological noise. It accepts the following inputs.
 
-- `matching_method`: "steady_state"
+- `matching_method`: "steady_state", "user", "closest", or "random"
 - `do_perturbations_persist`: ignored (fixed to True)
 - `prediction_timescale`: ignored (fixed to 1)
 - `method`: A method from sklearn, e.g. `KernelRidge`
@@ -74,11 +76,11 @@ The initial implementation requires steady-state matching; it ignores the passag
 - `network`: An edge list containing regulators, targets, weights (optional), and cell types (optional).  
 - `cell_type_sharing_strategy`: "identical", "distinct"
 
-Backend #1 is also the way GGRN can use GeneFormer. Following [issue 44](https://huggingface.co/ctheodoris/Geneformer/discussions/44) and [issue 53](https://huggingface.co/ctheodoris/Geneformer/discussions/53), we obtain post-perturbation cell embeddings from GeneFormer, then we train simple regression models to convert the post-perturbation cell embeddings to gene expression. 
+Backend #1 is the way GGRN can use GeneFormer. A few technical notes on our use of GeneFormer: 
 
-A few technical notes: 
 
-- Note that "post-perturbation cell embeddings" could be constructed from training data in two ways. One option is to simply encode the expression data, since perturbation effects are already present in the expression data. A second option is to use GeneFormer's typical tactic of altering the rank order to put overexpressed genes first and deleted genes last. Only the second option is available when making predictions, so we only use the second option during training.
+- Following [issue 44](https://huggingface.co/ctheodoris/Geneformer/discussions/44) and [issue 53](https://huggingface.co/ctheodoris/Geneformer/discussions/53), we obtain post-perturbation cell embeddings from GeneFormer, then we train simple regression models to convert the post-perturbation cell embeddings to gene expression. 
+- "Post-perturbation cell embeddings" could be constructed from training data in two ways. One option is to simply encode the expression data, since perturbation effects are already present in the expression data. A second option is to use GeneFormer's own tactic of altering the rank order to put overexpressed genes first and deleted genes last. Only the second option is available when making predictions, so we only use the second option during training.
 - Because the GeneFormer-derived features are not interpretable as individual gene activities, it is not possible to constrain the list of eligible regulators in any way: `eligible_regulators`, `predict_self`, and `network` cannot be used.
 - A GPU is required to use GeneFormer, but we find it is possible to use GeneFormer on a CPU if you replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
 - Certain files are saved to disk as a necessary part of tokenizing data for GeneFormer. These are saved in "geneformer_loom_data" and "geneformer_tokenized_data". If a run crashes, these files may not be cleaned up, and they may need to be manually removed. This step could also cause race conditions when multiple processes are calling GGRN's GeneFormer feature extraction at the same time. 

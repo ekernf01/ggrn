@@ -33,7 +33,6 @@ except ImportError:
     HAS_AUTOREGRESSIVE = False
 try:
     from geneformer_embeddings import geneformer_embeddings, geneformer_hyperparameter_optimization
-
     HAS_GENEFORMER = True
 except ImportError:
     HAS_GENEFORMER = False
@@ -87,7 +86,7 @@ class GRN:
         self.eligible_regulators = eligible_regulators
         if validate_immediately:
             assert self.check_perturbation_dataset()
-        if self.feature_extraction.lower() in {"geneformer"}:
+        if self.feature_extraction.lower().startswith("geneformer"):
             assert self.eligible_regulators is None, "You may not constrain the set of regulators when using GeneFormer feature extraction."
         return
 
@@ -146,7 +145,7 @@ class GRN:
             test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.
             kwargs: Passed to DCDFG or GEARS. See help(dcdfg_wrapper.DCDFGWrapper.train). 
         """
-        if feature_extraction.lower() == "geneformer":
+        if self.feature_extraction.lower().startswith("geneformer"):            
             assert predict_self, "GGRN cannot exclude autoregulation when using geneformer for feature extraction."
             assert prediction_timescale == 1, "GGRN cannot do iterative prediction when using geneformer for feature extraction."
         if network_prior is None:
@@ -154,6 +153,7 @@ class GRN:
         if network_prior != "ignore":
             assert self.network is not None, "You must provide a network unless network_prior is 'ignore'."
             assert feature_extraction.lower() in {"tf_mrna", "mrna", "rna", "tf_rna"},  "Only simple feature extraction is compatible with prior network structure."
+        self.train = match_controls(self.train, matching_method) 
         if self.features is None:
             self.extract_features(train = self.train, in_place = True)
         self.validate_method(method)
@@ -166,7 +166,6 @@ class GRN:
         self.training_args["feature_extraction"]         = feature_extraction
         self.training_args["method"]                     = method
         self.training_args["matching_method"]            = matching_method
-        self.train = match_controls(self.train, matching_method) 
         # Check that the cell types match between the network and the expression data
         if network_prior != "ignore" and self.training_args["cell_type_sharing_strategy"] != 'identical':
             ct_from_network = self.network.get_all_one_field("cell_type")
@@ -629,7 +628,7 @@ class GRN:
                 cell_type_labels = None
             for i in range(prediction_timescale):
                 starting_features = self.extract_features(
-                    train = predictions, 
+                    train = match_controls(predictions, matching_method = "steady_state"), # Feature extraction requires matching to be done already. 
                     in_place=False, 
                 ).copy()
                 if feature_extraction_requires_raw_data:
@@ -671,14 +670,19 @@ class GRN:
             in_place (bool, optional): If True (default), put results in self.features. Otherwise, return results as a matrix. 
             geneformer_finetune_labels (str, optional): Labels to use for fine-tuning geneformer. 
         """
+        assert self.feature_extraction.lower().startswith("geneformer_model_") or \
+            self.feature_extraction.lower() in {'geneformer', 'geneformer_finetune', 'geneformer_hyperparam_finetune'} or \
+                self.feature_extraction.lower() in {"tf_mrna", "tf_rna", "mrna"}, \
+                    f"Feature extraction must be 'mrna', 'geneformer', 'geneformer_finetune', 'geneformer_hyperparam_finetune', or 'geneformer_model_<path/to/pretrained/model>'; got '{self.feature_extraction}'."
         if train is None:
             train = self.train # shallow copy is best here
+        assert "matched_control" in train.obs.columns, "Feature extraction requires that matching (with `match_controls()`) has already been done."
 
         if self.feature_extraction.lower() in {"tf_mrna", "tf_rna", "mrna"}:
             if self.eligible_regulators is None:
                 self.eligible_regulators = train.var_names
             self.eligible_regulators = [g for g in self.eligible_regulators if g in train.var_names]
-            features = train[:,self.eligible_regulators].X.copy()
+            features = train[np.array(train.obs["matched_control"]),self.eligible_regulators].X.copy()
             for int_i, i in enumerate(train.obs.index):
                 # Expected format: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
                 pert_genes = train.obs.loc[i, "perturbation"].split(",")
@@ -693,63 +697,79 @@ class GRN:
                     else:
                         column = self.eligible_regulators.index(pert_genes[pert_idx])
                         features[int_i, column] = pert_exprs[pert_idx]
-        elif self.feature_extraction.lower() in {"geneformer"}:
+            # Return or add to GRN object
+            if in_place:
+                self.features = features # shallow copy is best here too
+                return
+            else:
+                return features
+
+        if self.feature_extraction.lower().startswith("geneformer"):
+            assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently GeneFormer feature extraction can only be used with the steady-state matching scheme."
             if not HAS_GENEFORMER:
                 raise ImportError("GeneFormer backend is not installed, and related models will not be available.")
+            self.geneformer_finetuned = "ctheodoris/GeneFormer" # Default to pretrained model with no fine-tuning
             self.eligible_regulators = list(range(256))
             file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels)
-            if geneformer_finetune_labels not in train.obs.columns:
-                print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. "
-                      "Embeddings will be extracted from the pre-trained model. If this message occurs during prediction, the fine-tuning "
-                      "may have taken place already during training, and the model will be re-used.")
-                geneformer_finetune_labels = None
-            # Fine-tune if 1) possible and 2) not done already
-            if geneformer_finetune_labels is not None and self.geneformer_finetuned is None:
-                try:
-                    optimal_hyperparameters = geneformer_hyperparameter_optimization.optimize_hyperparameters(file_with_tokens, column_with_labels = geneformer_finetune_labels, n_cpu = n_cpu)
-                    self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
-                        file_with_tokens = file_with_tokens, 
-                        column_with_labels = geneformer_finetune_labels,
-                        max_input_size = 2 ** 11,  # 2048
-                        max_lr                = optimal_hyperparameters[2]["learning_rate"],
-                        freeze_layers = 2,
-                        geneformer_batch_size = optimal_hyperparameters[2]["per_device_train_batch_size"],
-                        lr_schedule_fn        = optimal_hyperparameters[2]["lr_scheduler_type"],
-                        warmup_steps          = optimal_hyperparameters[2]["warmup_steps"],
-                        epochs                = optimal_hyperparameters[2]["num_train_epochs"],
-                        optimizer = "adamw",
-                        GPU_NUMBER = [], 
-                        seed                  = 42, 
-                        weight_decay          = optimal_hyperparameters[2]["weight_decay"],
-                    )
-                except ray.tune.error.TuneError as e:
-                    print(f"Hyperparameter selection failed with error {repr(e)}. Fine-tuning with default hyperparameters.")
-                    self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
-                        file_with_tokens = file_with_tokens, 
-                        column_with_labels = geneformer_finetune_labels,
-                    )
-
-            features = geneformer_embeddings.get_geneformer_perturbed_cell_embeddings(
-                adata_train=train,
-                file_with_tokens = file_with_tokens,
-                assume_unrecognized_genes_are_controls = True,
-                apply_perturbation_explicitly = True, 
-                file_with_finetuned_model = self.geneformer_finetuned
-            )
-        else:
-            raise NotImplementedError("Only 'mrna' and 'geneformer' are available so far for feature extraction methods.")
-        # Return or add to GRN object
+        # Check if user has already fine-tuned a model
+        if self.feature_extraction.lower().startswith("geneformer_model_"):
+            self.geneformer_finetuned = self.feature_extraction.removeprefix("geneformer_model_")
+        # Check if we have labels to fine-tune a model
+        if self.feature_extraction.lower() in {"geneformer_finetune", "geneformer_hyperparam_finetune"} and geneformer_finetune_labels not in train.obs.columns:
+            print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. "
+                    "Embeddings will be extracted from the pre-trained model. If this message occurs after training, the fine-tuning "
+                    "may have taken place already during training, and that model will be re-used.")
+            geneformer_finetune_labels = None
+        # Fine-tune without hyperparam sweep if 0) desired and 1) possible and 2) not done already
+        if self.feature_extraction == "geneformer_finetune" and \
+            geneformer_finetune_labels is not None and \
+                self.geneformer_finetuned is None:
+            self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
+                    file_with_tokens = file_with_tokens, 
+                    column_with_labels = geneformer_finetune_labels,
+                )
+        # Fine-tune with hyperparam sweep if 0) desired and 1) possible and 2) not done already
+        if self.feature_extraction.lower() in {"geneformer_hyperparam_finetune"} and \
+            geneformer_finetune_labels is not None and \
+                self.geneformer_finetuned is None:
+            try:
+                optimal_hyperparameters = geneformer_hyperparameter_optimization.optimize_hyperparameters(file_with_tokens, column_with_labels = geneformer_finetune_labels, n_cpu = n_cpu)
+                self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
+                    file_with_tokens = file_with_tokens, 
+                    column_with_labels = geneformer_finetune_labels,
+                    max_input_size = 2 ** 11,  # 2048
+                    max_lr                = optimal_hyperparameters[2]["learning_rate"],
+                    freeze_layers = 2,
+                    geneformer_batch_size = optimal_hyperparameters[2]["per_device_train_batch_size"],
+                    lr_schedule_fn        = optimal_hyperparameters[2]["lr_scheduler_type"],
+                    warmup_steps          = optimal_hyperparameters[2]["warmup_steps"],
+                    epochs                = optimal_hyperparameters[2]["num_train_epochs"],
+                    optimizer = "adamw",
+                    GPU_NUMBER = [], 
+                    seed                  = 42, 
+                    weight_decay          = optimal_hyperparameters[2]["weight_decay"],
+                )
+            except ray.tune.error.TuneError as e:
+                print(f"Hyperparameter selection failed with error {repr(e)}. Fine-tuning with default hyperparameters.")
+                self.feature_extraction = "geneformer_finetune"
+        
+        features = geneformer_embeddings.get_geneformer_perturbed_cell_embeddings(
+            adata_train=train,
+            file_with_tokens = file_with_tokens,
+            assume_unrecognized_genes_are_controls = True,
+            apply_perturbation_explicitly = True, 
+            file_with_finetuned_model = self.geneformer_finetuned
+        )
+        # Return results or add to GRN object
         if in_place:
             self.features = features # shallow copy is best here too
+            return
         else:
             return features
  
     def fit_models_parallel(self, FUN, network = None, do_parallel: bool = True, verbose: bool = False):
-        self.train.obs["index_int"] = [i for i in range(self.train.n_obs)]
-        self.train.obs["matched_control_int"] = [self.train.obs.loc[i, "index_int"] for i in self.train.obs["matched_control"].values]
         if network is None:
             network = self.network
-        self.features = self.features[self.train.obs["matched_control_int"], :]
         if do_parallel:   
                 m = Parallel(n_jobs=cpu_count()-1, verbose = verbose, backend="loky")(
                     delayed(apply_supervised_ml_one_gene)(
@@ -1121,12 +1141,13 @@ def apply_supervised_ml_one_gene(
         raise ValueError("cell_type_sharing_strategy must be 'distinct' or 'identical' or 'similar'.")
     return
 
-def get_regulators(eligible_regulators, predict_self, network_prior: str, target: str, network = None, cell_type = None) -> list:
+def get_regulators(eligible_regulators, predict_self: bool, network_prior: str, target: str, network = None, cell_type = None) -> list:
     """Get candidates for what's directly upstream of a given gene.
 
     Args:
-        eligible_regulators: list of all candidate regulators
-        predict_self: Should a candidate regulator be used to predict itself? 
+        eligible_regulators: list of all possible candidate regulators. Something might be missing from this list if it is not a TF and you only allow TF's to be regulators.
+        predict_self: Should a candidate regulator be used to predict itself? If False, removed no matter what. if True, added if in eligible_regulators. 
+            This completely overrides the network data; presence or absence of self-loops in the network is irrelevant.
         network_prior (str): see GRN.fit docs
         target (str): target gene
         network (load_networks.LightNetwork): see GRN.fit docs
@@ -1154,6 +1175,10 @@ def get_regulators(eligible_regulators, predict_self, network_prior: str, target
             selected_features = [tf for tf in selected_features if tf != target]
         except (KeyError, ValueError) as e:
             pass
+    else:
+        if target in eligible_regulators:
+            selected_features.append(target)
+            selected_features = list(set(selected_features))
     if len(selected_features)==0:
         return ["NO_REGULATORS"]
     else:
@@ -1205,7 +1230,6 @@ def match_controls(train_data: anndata.AnnData, matching_method: str):
       "random" (choose a random control).
     """
     if matching_method.lower() == "closest":
-        assert "matched_control" not in train_data.obs.columns, "matched_control column is already in .obs; delete it or set matching_method='user'."
         assert "is_control" in train_data.obs.columns, "A boolean field 'is_control' is required."
         assert any(train_data.obs["is_control"]), "matching_method=='closest' requires some True entries in train_data.obs['is_control']."
         # Index the control expression with a K-D tree
@@ -1232,7 +1256,7 @@ def match_controls(train_data: anndata.AnnData, matching_method: str):
         )]
     elif matching_method.lower() == "user":
         assert "matched_control" in train_data.obs.columns, "You must provide obs['matched_control']."
-        assert all( train_data.obs.loc[train_data.obs["matched_control"].notnull(), "matched_control"] < train_data.n_obs ), f"Matched control index may not be above {train_data.n_obs}."
+        assert all( train_data.obs.loc[train_data.obs["matched_control"].notnull(), "matched_control"].isin(train_data.obs.index) ), f"Matched control index must be in train_data.obs.index."
     else: 
         raise ValueError("matching method must be 'closest', 'user', or 'random'.")
     # This helps exclude observations with no matched control.

@@ -7,7 +7,7 @@ SHELL ["conda", "run", "-n", "scanpy_env", "/bin/bash", "-c"]
 
 # Install and test ggrn
 RUN git clone https://github.com/ekernf01/ggrn
-RUN pip install ggrn
+RUN pip install -e ggrn
 RUN python -c "import ggrn.api as ggrn"
 
 # Run train.py in scanpy_env when the container starts

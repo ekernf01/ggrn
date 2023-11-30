@@ -1237,9 +1237,9 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
     """
 
     assert "is_control" in train_data.obs.columns, "A boolean column 'is_control' is required in train_data.obs."
-    assert any(train_data.obs["is_control"]), "matching_method=='closest' requires some True entries in train_data.obs['is_control']."
     control_indices_integer = np.where(train_data.obs["is_control"])[0]
     if matching_method.lower() == "closest":
+        assert any(train_data.obs["is_control"]), "matching_method=='closest' requires some True entries in train_data.obs['is_control']."
         # Index the control expression with a K-D tree
         kdt = KDTree(train_data.X[train_data.obs["is_control"],:], leaf_size=30, metric='euclidean')
         # Query the index to get 1 nearest neighbor
@@ -1255,6 +1255,7 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
     elif matching_method.lower() == "optimal_transport":
         raise NotImplementedError("Sorry, cannot yet match samples to controls by optimal transport.")
     elif matching_method.lower() == "random":
+        assert any(train_data.obs["is_control"]), "matching_method=='random' requires some True entries in train_data.obs['is_control']."
         train_data.obs["matched_control"] = np.random.choice(
             control_indices_integer,
             train_data.obs.shape[0],

@@ -1137,8 +1137,6 @@ def apply_supervised_ml_one_gene(
             X = np.ones(shape=features[:,[0]].shape)
         else:
             X = features[:,is_in_model]
-        if X.shape[1] > 1:
-            breakpoint()
         return FUN(X = X[~is_target_perturbed, :], y = target_expr[~is_target_perturbed])
     else:
         raise ValueError("cell_type_sharing_strategy must be 'distinct' or 'identical' or 'similar'.")

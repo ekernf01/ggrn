@@ -153,7 +153,7 @@ class GRN:
         if network_prior != "ignore":
             assert self.network is not None, "You must provide a network unless network_prior is 'ignore'."
             assert feature_extraction.lower() in {"tf_mrna", "mrna", "rna", "tf_rna"},  "Only simple feature extraction is compatible with prior network structure."
-        self.train = match_controls(self.train, matching_method) 
+        self.train = match_controls(self.train, matching_method, matched_control_is_integer=False) 
         if self.features is None:
             self.extract_features(train = self.train, in_place = True)
         self.validate_method(method)
@@ -563,6 +563,7 @@ class GRN:
         # Now implement perturbations, including altering metadata and features,
         # but not yet downstream expression.
         predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
+        predictions.obs["is_control"] = False
         for i in range(len(perturbations)):
             idx_str = str(i)
             # Expected input: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
@@ -628,7 +629,7 @@ class GRN:
                 cell_type_labels = None
             for i in range(prediction_timescale):
                 starting_features = self.extract_features(
-                    train = match_controls(predictions, matching_method = "steady_state"), # Feature extraction requires matching to be done already. 
+                    train = match_controls(predictions, matching_method = "steady_state", matched_control_is_integer=False), # Feature extraction requires matching to be done already. 
                     in_place=False, 
                 ).copy()
                 if feature_extraction_requires_raw_data:
@@ -1136,6 +1137,8 @@ def apply_supervised_ml_one_gene(
             X = np.ones(shape=features[:,[0]].shape)
         else:
             X = features[:,is_in_model]
+        if X.shape[1] > 1:
+            breakpoint()
         return FUN(X = X[~is_target_perturbed, :], y = target_expr[~is_target_perturbed])
     else:
         raise ValueError("cell_type_sharing_strategy must be 'distinct' or 'identical' or 'similar'.")
@@ -1221,45 +1224,55 @@ def isnan_safe(x):
         return False
 
 
-def match_controls(train_data: anndata.AnnData, matching_method: str):
+def match_controls(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool):
     """
     Add info to the training data about which observations are paired with which.
 
-    matching_method: "steady_state" (match each obs to itself), "closest" (choose the closest control), or
+    train_data (AnnData):
+    matching_method (str): "steady_state" (match each obs to itself), "closest" (choose the closest control), or
       "user" (do nothing and expect an existing column 'matched_control'), or 
       "random" (choose a random control).
+    matched_control_is_integer (bool): If True (default), the "matched_control" column in the obs of the returned anndata contains integers.
+        Otherwise, it contains elements of adata.obs_names.
     """
+
+    assert "is_control" in train_data.obs.columns, "A boolean column 'is_control' is required in train_data.obs."
+    assert any(train_data.obs["is_control"]), "matching_method=='closest' requires some True entries in train_data.obs['is_control']."
+    control_indices_integer = np.where(train_data.obs["is_control"])[0]
     if matching_method.lower() == "closest":
-        assert "is_control" in train_data.obs.columns, "A boolean field 'is_control' is required."
-        assert any(train_data.obs["is_control"]), "matching_method=='closest' requires some True entries in train_data.obs['is_control']."
         # Index the control expression with a K-D tree
         kdt = KDTree(train_data.X[train_data.obs["is_control"],:], leaf_size=30, metric='euclidean')
-        control_index_converter = train_data.obs.index[train_data.obs["is_control"]].copy()
         # Query the index to get 1 nearest neighbor
         nn = [nn[0] for nn in kdt.query(train_data.X, k=1, return_distance=False)]
         # Convert from index among controls to index among all obs
-        train_data.obs["matched_control"] = control_index_converter[nn]
-        # Mark controls as steady state, as they ought to be self-matched
+        train_data.obs["matched_control"] = control_indices_integer[nn]
+        # Controls should be self-matched. K-D tree can violate this when input data have exact dupes.
         for j,i in enumerate(train_data.obs.index):
             if train_data.obs.loc[i, "is_control"]:
-                train_data.obs.loc[i, "is_steady_state"] = True
-                train_data.obs.loc[i, "matched_control"] = i # Controls should be self-matched, which can fail when input data have exact dupes.
+                train_data.obs.loc[i, "matched_control"] = j
     elif matching_method.lower() == "steady_state":
-        train_data.obs["matched_control"] = train_data.obs.index
+        train_data.obs["matched_control"] = range(len(train_data.obs.index))
     elif matching_method.lower() == "optimal_transport":
         raise NotImplementedError("Sorry, cannot yet match samples to controls by optimal transport.")
     elif matching_method.lower() == "random":
-        train_data.obs["matched_control"] = train_data.obs.index[np.random.choice(
-            np.where(train_data.obs["is_control"])[0], 
-            train_data.obs.shape[0], 
+        train_data.obs["matched_control"] = np.random.choice(
+            control_indices_integer,
+            train_data.obs.shape[0],
             replace = True,
-        )]
+        )
     elif matching_method.lower() == "user":
         assert "matched_control" in train_data.obs.columns, "You must provide obs['matched_control']."
-        assert all( train_data.obs.loc[train_data.obs["matched_control"].notnull(), "matched_control"].isin(train_data.obs.index) ), f"Matched control index must be in train_data.obs.index."
+        if matched_control_is_integer:
+            assert all( train_data.obs.loc[train_data.obs["matched_control"].notnull(), "matched_control"].isin(range(train_data.n_obs)) ), f"Matched controls must be in range(train_data.n_obs)."
+        else:
+            assert all( train_data.obs.loc[train_data.obs["matched_control"].notnull(), "matched_control"].isin(train_data.obs.index) ), f"Matched control index must be in train_data.obs.index."
     else: 
         raise ValueError("matching method must be 'closest', 'user', or 'random'.")
-    # This helps exclude observations with no matched control.
+    # This index_among_eligible_observations column is useful downstream for autoregressive modeling.
     train_data.obs["index_among_eligible_observations"] = train_data.obs["matched_control"].notnull().cumsum()-1
     train_data.obs.loc[train_data.obs["matched_control"].isnull(), "index_among_eligible_observations"] = np.nan
+
+    if not matched_control_is_integer:
+        has_matched_control = train_data.obs["matched_control"].notnull()
+        train_data.obs.loc[has_matched_control, "matched_control"] = train_data.obs.index[train_data.obs.loc[has_matched_control, "matched_control"]]
     return train_data

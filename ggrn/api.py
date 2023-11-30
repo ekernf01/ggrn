@@ -663,8 +663,7 @@ class GRN:
         return predictions
 
     def extract_features(self, train: anndata.AnnData = None, in_place: bool = True, geneformer_finetune_labels: str = "louvain", n_cpu = 15):
-        """Create a feature matrix where each row matches a row in self.train and
-        each column represents a feature in self.eligible_regulators.
+        """Create a feature matrix to be used when predicting each observation from its matched control. 
 
         Args:
             train: (anndata.AnnData, optional). Expression data to use in feature extraction. Defaults to self.train.
@@ -683,8 +682,8 @@ class GRN:
             if self.eligible_regulators is None:
                 self.eligible_regulators = train.var_names
             self.eligible_regulators = [g for g in self.eligible_regulators if g in train.var_names]
-            features = train[np.array(train.obs["matched_control"]),self.eligible_regulators].X.copy()
-            for int_i, i in enumerate(train.obs.index):
+            features = train[np.array(train.obs["matched_control"][train.obs["matched_control"].notnull()]),self.eligible_regulators].X.copy()
+            for int_i, i in enumerate(train.obs.index[train.obs["matched_control"].notnull()]):
                 # Expected format: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
                 pert_genes = train.obs.loc[i, "perturbation"].split(",")
                 pert_exprs = [float(f) for f in str(train.obs.loc[i, "expression_level_after_perturbation"]).split(",")]
@@ -706,7 +705,7 @@ class GRN:
                 return features
 
         if self.feature_extraction.lower().startswith("geneformer"):
-            assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently GeneFormer feature extraction can only be used with the steady-state matching scheme."
+            assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently, GeneFormer feature extraction can only be used with the steady-state matching scheme."
             if not HAS_GENEFORMER:
                 raise ImportError("GeneFormer backend is not installed, and related models will not be available.")
             self.geneformer_finetuned = "ctheodoris/GeneFormer" # Default to pretrained model with no fine-tuning
@@ -775,7 +774,7 @@ class GRN:
                 m = Parallel(n_jobs=cpu_count()-1, verbose = verbose, backend="loky")(
                     delayed(apply_supervised_ml_one_gene)(
                         train_obs = self.train.obs,
-                        target_expr = self.train.X[:,i],
+                        target_expr = self.train.X[self.train.obs["matched_control"].notnull(),i],
                         features = self.features,
                         network = network,
                         training_args = self.training_args,
@@ -790,7 +789,7 @@ class GRN:
             return [
                 apply_supervised_ml_one_gene(
                     train_obs = self.train.obs,
-                    target_expr = self.train.X[:,i],
+                    target_expr = self.train.X[self.train.obs["matched_control"].notnull(),i],
                     features = self.features,
                     network = network,
                     training_args = self.training_args,
@@ -1227,16 +1226,19 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
     Add info to the training data about which observations are paired with which.
 
     train_data (AnnData):
-    matching_method (str): "steady_state" (match each obs to itself), "closest" (choose the closest control), or
-      "user" (do nothing and expect an existing column 'matched_control'), or 
-      "random" (choose a random control).
+    matching_method (str): one of
+        - "steady_state" (match each obs to itself)
+        - "closest" (choose the closest control, matching each control to itself)
+        - "closest_with_unmatched_controls" (choose the closest control for each perturbed sample, but leave each control sample unmatched)
+        - "user" (do nothing and expect an existing column 'matched_control')
+        - "random" (choose a random control)
     matched_control_is_integer (bool): If True (default), the "matched_control" column in the obs of the returned anndata contains integers.
         Otherwise, it contains elements of adata.obs_names.
     """
 
     assert "is_control" in train_data.obs.columns, "A boolean column 'is_control' is required in train_data.obs."
     control_indices_integer = np.where(train_data.obs["is_control"])[0]
-    if matching_method.lower() == "closest":
+    if matching_method.lower() in {"closest", "closest_with_unmatched_controls"}:
         assert any(train_data.obs["is_control"]), "matching_method=='closest' requires some True entries in train_data.obs['is_control']."
         # Index the control expression with a K-D tree
         kdt = KDTree(train_data.X[train_data.obs["is_control"],:], leaf_size=30, metric='euclidean')
@@ -1247,7 +1249,7 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
         # Controls should be self-matched. K-D tree can violate this when input data have exact dupes.
         for j,i in enumerate(train_data.obs.index):
             if train_data.obs.loc[i, "is_control"]:
-                train_data.obs.loc[i, "matched_control"] = j
+                train_data.obs.loc[i, "matched_control"] = np.nan if matching_method.lower() == "closest_with_unmatched_controls" else j
     elif matching_method.lower() == "steady_state":
         train_data.obs["matched_control"] = range(len(train_data.obs.index))
     elif matching_method.lower() == "optimal_transport":

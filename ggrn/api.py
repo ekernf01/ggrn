@@ -1096,6 +1096,10 @@ def apply_supervised_ml_one_gene(
         _type_: dict with cell types as keys and with values containing result of FUN. see GRN.fit docs.
     """
     is_target_perturbed = train_obs["perturbation"]==target
+    # We train on input-output pairs, and there may be fewer pairs than samples when we don't assume steady state.
+    # This vector needs to answer "was the target gene perturbed" for each **output** member of a pair.
+    # That's why we subset to those with a non-null matched_control.
+    is_target_perturbed = is_target_perturbed[train_obs["matched_control"].notnull()]
     if training_args["cell_type_sharing_strategy"] == "distinct":
         assert training_args["cell_type_labels"] is not None,               "cell_type_labels must be provided."
         assert training_args["cell_type_labels"] in set(train_obs.columns), "cell_type_labels must name a column in .obs of training data."
@@ -1266,14 +1270,16 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
         if matched_control_is_integer:
             assert all( train_data.obs.loc[train_data.obs["matched_control"].notnull(), "matched_control"].isin(range(train_data.n_obs)) ), f"Matched controls must be in range(train_data.n_obs)."
         else:
-            assert all( train_data.obs.loc[train_data.obs["matched_control"].notnull(), "matched_control"].isin(train_data.obs.index) ), f"Matched control index must be in train_data.obs.index."
+            mc = train_data.obs["matched_control"]
+            mc = mc[train_data.obs["matched_control"].notnull()]
+            assert all( mc.isin(train_data.obs.index) ), f"Matched control index must be in train_data.obs.index."
     else: 
         raise ValueError("matching method must be 'closest', 'user', or 'random'.")
     # This index_among_eligible_observations column is useful downstream for autoregressive modeling.
     train_data.obs["index_among_eligible_observations"] = train_data.obs["matched_control"].notnull().cumsum()-1
     train_data.obs.loc[train_data.obs["matched_control"].isnull(), "index_among_eligible_observations"] = np.nan
 
-    if not matched_control_is_integer:
+    if not matched_control_is_integer and matching_method.lower() != "user":
         has_matched_control = train_data.obs["matched_control"].notnull()
         train_data.obs.loc[has_matched_control, "matched_control"] = train_data.obs.index[train_data.obs.loc[has_matched_control, "matched_control"]]
     return train_data

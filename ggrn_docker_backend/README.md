@@ -9,7 +9,8 @@ GGRN can interface with any GRN software that can run in a Docker container.
     - When using GGRN with a Docker backend, you can still pass all the usual GGRN args to `GRN.fit()`. These will be saved to `from_to_docker/ggrn_args.json` and mounted to the container, so your code can look for keyword args in `from_to_docker/ggrn_args.json`.
     - If your method does not fit cleanly into the grammar defining GGRN or has other keyword args, you can also pass in custom keyword args. They will be saved to `from_to_docker/kwargs.json` and mounted to the container, so your code can look for keyword args in `from_to_docker/kwargs.json`.
         - When using GGRN via our benchmarking framework, you can specify kwargs by adding a key `kwargs` to the `metadata.json` for your experiment. The value should be a dict containing anything you want. For more info, you can read the [reference](https://github.com/ekernf01/perturbation_benchmarking/blob/main/docs/reference.md) on `kwargs` and `kwargs_to_expand`, and for an example, you can [consult our how-to](https://github.com/ekernf01/perturbation_benchmarking/blob/main/docs/how_to.md).
-        - When using GGRN directly, you can pass a dict `kwargs` to `GRN.fit` in your python code.  Be aware that Python may not translate perfectly to json; for instance, json lacks Python's `None` value. 
+        - When using GGRN directly, you can pass a dict `kwargs` to `GRN.fit` in your python code.  Be aware that Python may not translate perfectly to json; for instance, json lacks Python's `None` value.
+- **Passing networks to your method**: This feature is not yet supported. The most likely plan is to save an Apache Parquet file in `from_to_docker/network.parquet`.
 
 ### Example
 

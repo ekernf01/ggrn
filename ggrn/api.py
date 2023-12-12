@@ -317,16 +317,24 @@ class GRN:
                     kwargs[k] = defaults[k]
             # Follow GEARS data setup tutorial
             pert_data = GEARSPertData("./ggrn_gears_input", default_pert_graph = True)
+            self.train.obs_names = ["cell_" + c for c in self.train.obs_names] #Empty string as obs names causes problems, so concat all with a prefix
             pert_data.new_data_process(dataset_name = 'current', adata = self.train)
             pert_data.load(data_path = './ggrn_gears_input/current')
             # For the data split, we use train_gene_set_size = 0.95 instead of the default.
             # This is not documented; however, it has the effect of using more of the input for train and
             # validation instead of the test set. A test set has already been reserved by our 
             # benchmarking framework in a typical use of this code. 
-            pert_data.prepare_split(split = 'no_test', seed = kwargs["seed"] )
-            pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
-            self.models = GEARS(pert_data, device = kwargs["device"])
-            self.models.model_initialize(hidden_size = kwargs["hidden_size"])
+            try:
+                pert_data.prepare_split(split = 'no_test', seed = kwargs["seed"] )
+                pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
+                self.models = GEARS(pert_data, device = kwargs["device"])
+                self.models.model_initialize(hidden_size = kwargs["hidden_size"])
+            except Exception as e:
+                print(f"GEARS data splitting failed with error {repr(e)}. Falling back on a likely-suboptimal training strategy.")
+                pert_data.prepare_split(train_gene_set_size = 0.95, seed = kwargs["seed"] )
+                pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
+                self.models = GEARS(pert_data, device = kwargs["device"])
+                self.models.model_initialize(hidden_size = kwargs["hidden_size"])
             self.models.train(epochs = kwargs["epochs"])
         elif method.startswith("DCDFG"):
             assert HAS_DCDFG, "DCD-FG wrapper is not installed, and related models (DCD-FG, NOTEARS) cannot be used."

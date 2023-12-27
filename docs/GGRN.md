@@ -79,7 +79,7 @@ We formalize these alternatives with a keyword argument `cell_type_sharing_strat
 
 To predict the effect of perturbing gene $j$ to level $z$ (e.g. $z=0$ for a knockout), an obvious choice is to start with control expression $X$, set $X_j \leftarrow z$, and then set $X \leftarrow F(X)$. For models like Dynamo, PRESCIENT, ARMADA, and ScanBMA that are coupled to an explicit time-scale, an entire trajectory can be computed by iterating this process. For steady-state models, the amount of time simulated by a single iteration is unclear. In DCD-FG, typically a single iteration is used. CellOracle leaves this to the user, recommending 3 iterations. Dictys proceeds until a steady state is reached.
 
-We formalize this with a keyword argument `predictive_timescale` that accepts any positive integer. 
+We formalize this with a keyword argument `prediction_timescale` that accepts any positive integer. 
 
 #### Perturbation persistence 
 

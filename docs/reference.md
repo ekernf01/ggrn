@@ -1,8 +1,13 @@
-### Detailed reference
+### GGRN software reference
 
-From the [grammar of gene regulatory networks](https://github.com/ekernf01/ggrn/blob/main/docs/GGRN.md), many of the combinations that can be specified either make no sense, or would be very complex to implement. The current software offers only subsets of features. These are implemented via several separate backends. 
+Our implementation of the [grammar of gene regulatory networks](https://github.com/ekernf01/ggrn/blob/main/docs/GGRN.md) is used by constructing a GRN object, then calling its `fit` and `predict` methods. Most of the GGRN args are passed to `ggrn.api.GRN.fit()`, but `network` and `feature_extraction` are passed to the constructor `ggrn.api.GRN()`.
 
-With apologies, the `method` arg of the `grn.fit` is currently used to select both the backend AND, within backend #1, the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility. Where `regression_method` is mentioned below, it currently corresponds to the `method` arg of `GRN.fit`.
+Many of the combinations that can be specified in GGRN either make no sense, or would be very complex to implement. The current software offers only subsets of features. These are implemented via several separate backends. 
+
+##### Two idiosyncracies
+
+- With apologies, the `method` arg of the `grn.fit` is currently used to specify both the backend AND, within backend #1, it is used to specify the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility. Where `regression_method` is mentioned below, it currently corresponds to the `method` arg of `GRN.fit`.
+- The `network` arg expects a LightNetwork object from our [network loader package](https://github.com/ekernf01/load_networks). If you have your own network data, you can make a LightNetwork object from a pandas dataframe or a parquet file.
 
 #### Backend 1: steady state 
 

@@ -52,3 +52,7 @@ grn.fit(
 # anndata.AnnData is returned
 predictions = grn.predict([("POU5F1", 0), ("NANOG", 0)])
 ```
+
+### Explanation and full API reference
+
+See `docs`.

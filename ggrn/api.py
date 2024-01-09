@@ -66,7 +66,7 @@ class GRN:
             train (anndata.AnnData): Training data. Should conform to the requirements in load_perturbations.check_perturbation_dataset().
             network (load_networks.LightNetwork, optional): LightNetwork object containing prior knowledge about regulators and targets.
             eligible_regulators (List, optional): List of gene names that are allowed to be regulators. Defaults to all genes.
-            validate_immediately (bool, optional): check validity input object?
+            validate_immediately (bool, optional): check validity of the input anndata?
             feature_extraction (str, optional): How to extract features. Defaults to "tf_rna", which uses the mRNA level of the TF. You 
                 can also specify "geneformer" to use GeneFormer to extract cell embeddings. 
 
@@ -85,9 +85,11 @@ class GRN:
         self.feature_extraction = "mrna" if (feature_extraction is None or isnan_safe(feature_extraction)) else feature_extraction
         self.eligible_regulators = eligible_regulators
         if validate_immediately:
+            print("Checking the training data.")
             assert self.check_perturbation_dataset()
         if self.feature_extraction.lower().startswith("geneformer"):
             assert self.eligible_regulators is None, "You may not constrain the set of regulators when using GeneFormer feature extraction."
+        print("Done.")
         return
 
     def fit(

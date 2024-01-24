@@ -216,6 +216,9 @@ class GRN:
             )
             autoregressive_model.train()      
             self.models = autoregressive_model
+        elif method.startswith("regulon"):
+            # There's no training for this; it's a simple function of the user-provided network structure. 
+            pass
         elif method.startswith("SCFormer"):
             raise NotImplementedError("Sorry, the SCFormer backend is still in progress.")
         elif method.startswith("GeneFormerNSP"):
@@ -539,7 +542,7 @@ class GRN:
                     print(self.train.obs.head())
                     raise ValueError(f"No controls found for control_subtype {control_subtype}.")
             all_controls = np.where(all_controls)[0]
-            # Copy all starting expression and metadata from the aforementioned controls
+            # Copy mean expression and metadata from the selected controls
             starting_metadata_one   = self.train.obs.iloc[[all_controls[0]], :].copy()
             def toArraySafe(X):
                 try:
@@ -557,7 +560,7 @@ class GRN:
                 for col in columns_to_transfer:
                     predictions.obs.loc[idx_str, col] = starting_metadata_one.loc[:,col][0]
 
-        # Enforce that predictions has correct type, shape, metadata fields
+        # Enforce that predictions has correct type, shape, metadata fields.
         assert type(predictions) == anndata.AnnData, f"predictions must be anndata; got {type(predictions)}"
         assert predictions.obs.shape[0] == len(perturbations), "Starting expression must be None or an AnnData with one obs per perturbation."
         assert all(c in set(predictions.obs.columns) for c in columns_to_transfer), f"predictions must be accompanied by these metadata fields: \n{'  '.join(columns_to_transfer)}"
@@ -566,12 +569,12 @@ class GRN:
         predictions.obs.index = [str(x) for x in range(len(predictions.obs.index))]
 
         # At this point, predictions is in the right shape, and has most of the
-        # right metadata.
+        # right metadata, and the expression is set to the mean of the control samples. 
         # But it doesn't have the right perturbations listed in the metadata.
         # And the perturbations have not been propagated to the features or the expression predictions. 
         
-        # Now implement perturbations, including altering metadata and features,
-        # but not yet downstream expression.
+        # Now we implement perturbations, including altering metadata and features,
+        # but not yet downstream expression. Individual methods will do that part. 
         predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
         predictions.obs["is_control"] = False
         for i in range(len(perturbations)):
@@ -583,6 +586,16 @@ class GRN:
         # Now predict the expression
         if self.training_args["method"].startswith("autoregressive"):
             predictions = self.models.predict(perturbations = perturbations, predictions = predictions)
+        elif self.training_args["method"].startswith("regulon"):
+            # Assume targets go up if regulator goes up, and down if down
+            assert HAS_NETWORKS, "To use the 'regulon' backend you must have access to our load_networks module."
+            assert type(self.network) is load_networks.LightNetwork, "To use the 'regulon' backend you must provide a network structure."
+            for i,perturbation in enumerate(perturbations):
+                logfc = perturbation[1] - predictions[i, perturbation[0]].X
+                targets = self.network.get_targets(perturbation[0])["target"]
+                targets = list(set(predictions.var_names).intersection(targets))
+                if len(targets) > 0:
+                    predictions[i, targets].X = predictions[i, targets].X + logfc
         elif self.training_args["method"].startswith("docker"):
             try:
                 _, docker_args, image_name = self.training_args["method"].split("__")
@@ -962,6 +975,7 @@ class GRN:
             "docker",
             "GEARS",
             "DCDFG",
+            "regulon",
         ]
         for p in allowed_prefixes:
             if method.startswith(p):

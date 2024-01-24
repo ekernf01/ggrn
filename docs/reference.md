@@ -16,7 +16,7 @@ The initial implementation offers several matching methods; flexible regression;
 - `matching_method`: "steady_state", "user", "closest", or "random"
 - `do_perturbations_persist`: ignored (fixed to True)
 - `prediction_timescale`: ignored (fixed to 1)
-- `method`: A method from sklearn, e.g. `KernelRidge`
+- `regression_method`: A method from sklearn, e.g. `KernelRidge`
 - `eligible_regulators`: Any list of gene names
 - `predict_self`: ignored (fixed to False)
 - `feature_extraction`: "mrna" or "geneformer". With "geneformer", you cannot use prior networks.
@@ -67,7 +67,7 @@ As the third backend of GGRN, we implement an autoregressive model that explicit
 - `low_dimensional_structure`: "none", "dynamics"
 - `low_dimensional_training`: "user", "svd", "supervised"
 - `pruning_strategy`: ignored (fixed to "none")
-- `network`: Currently ignored, but we hope to include this to construct the projection when "low_dimensional_training" is "user".
+- `network`: Currently ignored, but in the future, we hope to include known networks to help construct the projection when "low_dimensional_training" is "user".
 - `cell_type_sharing_strategy`: ignored (set to "identical")
 
 For more information on this model, see [here](http://github.com/ekernf01/ggrn_backend3).
@@ -81,6 +81,10 @@ Some technical notes:
 - GEARS requires an internet connection (to download the GO graph). 
 - Running GEARS will generate certain files and folders as a side effect; we save training data to a folder "ggrn_gears_input". This folder is normally deleted after use, but if a run crashes, it may need to be deleted. Otherwise, it can interfere with future runs. This can also create race conditions, and we do not support calling GEARS from multiple processes that share a working directory. 
 - A GPU is typically required to use GEARS, but we find it is possible to use GEARS on a CPU. Depending on the version, this may require minor changes to GEARS source code: replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
+
+#### Backend 5: networks alone
+
+We offer another simple option that is not well described by GGRN. This backend is specified by setting `regression_method` to `"regulon"`. This backend requires a network structure, but no training data are needed. In this backend, the targets in the provided network will exactly follow the fold change of their regulators. For example, whenever log-scale FOXA1 expression goes up by 0.5 due to overexpression, FOXA1's targets in the provided network will go up by 0.5 also. 
 
 #### Arbitrary backends via Docker:
 

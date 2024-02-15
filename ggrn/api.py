@@ -15,6 +15,7 @@ import json
 import gc
 import ray.tune.error
 from torch.cuda import is_available as is_gpu_available
+import subprocess
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
     HAS_DCDFG = True 
@@ -256,9 +257,9 @@ class GRN:
                 "predict_self": bool(predict_self), 
             }
             with open("from_to_docker/ggrn_args.json", "x") as f:
-                json.dump(ggrn_args, f)
+                json.dump(ggrn_args, f, default = float) # default=float allows numpy numbers to be converted instead of choking json.
             with open("from_to_docker/kwargs.json", "x") as f:
-                json.dump(kwargs, f)
+                json.dump(kwargs, f, default = float) 
         elif method.startswith("GEARS"):
             if not HAS_GEARS:
                 raise ImportError("GEARS is not installed, and related models will not be available.")
@@ -606,7 +607,7 @@ class GRN:
                 raise ValueError(f"docker argument parsing failed on input {self.training_args['method']} with error {repr(e)}. Expected format: docker__myargs__mycontainer")
             print(f"image name: {image_name}")
             print(f"args to 'docker run': {docker_args}")
-            self.training_args["docker_args"] = docker_args
+            self.training_args["docker_args"] = [s for s in docker_args.split(" ") if s!=""]
             self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
             self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
             self.train.write_h5ad("from_to_docker/train.h5ad")
@@ -614,12 +615,17 @@ class GRN:
             with open("from_to_docker/perturbations.json", 'w') as f:
                 json.dump(perturbations, f)
             assert os.path.isfile("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
-            cmd = f"docker run --rm " + \
-                f" --mount type=bind,source={os.getcwd()}/from_to_docker/,destination=/from_to_docker " + \
-                f" {self.training_args['docker_args']} " + \
-                f" {image_name} > from_to_docker/stdout.txt 2> from_to_docker/err.txt"
-            print(f"Running command: \n{cmd}")
-            os.system(cmd)
+            cmd = [
+                "docker", "run", 
+                "--rm",
+                "--mount", f"type=bind,source={os.getcwd()}/from_to_docker/,destination=/from_to_docker",
+            ] + self.training_args['docker_args'] + [
+                f"{image_name}"
+            ]
+            print(f"Running command:\n\n{' '.join(cmd)}\n\nwith logs from_to_docker/stdout.txt, from_to_docker/err.txt")
+            with open('from_to_docker/stdout.txt', 'w') as out:
+                with open('from_to_docker/err.txt', 'w') as err:
+                    return_code = subprocess.call(cmd, stdout=out, stderr=err)
             assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad"
             predictions = sc.read_h5ad("from_to_docker/predictions.h5ad")
             predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)

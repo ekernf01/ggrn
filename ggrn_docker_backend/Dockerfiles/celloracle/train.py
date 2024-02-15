@@ -38,17 +38,20 @@ oracle.knn_imputation(n_pca_dims=n_comps, k=k, balanced=True, b_sight=k*8,
 print("Running ridge regression and pruning")
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
+    print("regressing")
     links = oracle.get_links(cluster_name_for_GRN_unit="louvain", 
                                 alpha=10, 
                                 model_method = "bayesian_ridge",
                                 verbose_level=10,    
                                 test_mode=False, 
                                 n_jobs=14)
+    print("filtering")
     links.filter_links(p=0.001, 
                        weight="coef_abs", 
-                       threshold_number=ggrn_args["pruning_parameter"])
-
+                       threshold_number=int(ggrn_args["pruning_parameter"]))
+print("filteringing")
 links.links_dict = links.filtered_links.copy()
+print("refitting")
 oracle.get_cluster_specific_TFdict_from_Links(links_object=links)
 oracle.fit_GRN_for_simulation(alpha=10, use_cluster_specific_TFdict=True)
 
@@ -71,4 +74,5 @@ for i, goilevel in enumerate(perturbations):
         predictions[i, :].X = np.nan
         print("Prediction failed for " + goi + " with error " + str(e))
 
+print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

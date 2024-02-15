@@ -49,4 +49,4 @@ RUN cd ~ && pip install -e load_networks/
 COPY ./train.py /train.py
 
 # Run train.py in scanpy_env when the container starts
-# ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "scanpy_env", "python", "train.py"]
+ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "scanpy_env", "python", "train.py"]

@@ -610,13 +610,14 @@ class GRN:
             self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
             self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
             self.train.write_h5ad("from_to_docker/train.h5ad")
+            self.network.get_all().to_parquet("from_to_docker/network.parquet")
             with open("from_to_docker/perturbations.json", 'w') as f:
                 json.dump(perturbations, f)
             assert os.path.isfile("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
             cmd = f"docker run --rm " + \
                 f" --mount type=bind,source={os.getcwd()}/from_to_docker/,destination=/from_to_docker " + \
                 f" {self.training_args['docker_args']} " + \
-                f" {image_name}"
+                f" {image_name} > from_to_docker/stdout.txt 2> from_to_docker/err.txt"
             print(f"Running command: \n{cmd}")
             os.system(cmd)
             assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad"

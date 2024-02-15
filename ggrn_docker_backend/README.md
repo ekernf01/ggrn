@@ -9,12 +9,12 @@ GGRN can interface with any GRN software that can run in a Docker container.
     - As a starting point, you can use the Dockerfile and the python script given in this repo in `Dockerfiles/template`; copy and rename into an adjacent folder. 
     - Although you can name the image whatever you prefer, we use the convention `ggrn_docker_backend_{f}` where f is the folder you just created. 
     - The only requirement is that when a container runs, it should run your program described above. This is taken care of in the template by the `ENTRYPOINT` directive. If you remove it for interactive development, you will probably need to restore it eventually.
-- **Passing arguments to your method**:
+- **Passing arguments and networks to your method**:
+    - GGRN's GRN class has a `.network` data member. This is saved as an Apache Parquet file in `from_to_docker/network.parquet` so you can use it inside the container.
     - When using GGRN with a Docker backend, you can still pass all the usual GGRN args to `GRN.fit()`. These will be saved to `from_to_docker/ggrn_args.json` and mounted to the container, so your code can look for keyword args in `/from_to_docker/ggrn_args.json`.
     - If your method does not fit cleanly into the grammar defining GGRN or has other keyword args, you can also pass in custom keyword args. They will be saved to `from_to_docker/kwargs.json` and mounted to the container, so your code can look for keyword args in `/from_to_docker/kwargs.json`.
         - When using GGRN directly (not through the benchmarking code), you can pass a dict `kwargs` to `GRN.fit` in your python code.  Be aware that Python may not translate perfectly to json; for instance, json lacks Python's `None` value.
         - When using GGRN via our benchmarking framework, you can specify kwargs by adding a key `kwargs` to the `metadata.json` for your experiment. The value should be a dict containing anything you want. For more info, you can read the [reference](https://github.com/ekernf01/perturbation_benchmarking/blob/main/docs/reference.md) on `kwargs` and `kwargs_to_expand`, and for an example, you can [consult our how-to](https://github.com/ekernf01/perturbation_benchmarking/blob/main/docs/how_to.md).
-- **Passing networks to your method**: Our benchmarking project includes a collection of gene regulatory networks, which we would eventually like to make available for benchmarked methods to use as side information. However, this network sharing feature is not yet supported. One possible plan is to save Apache Parquet files in `from_to_docker/network.parquet`. 
 
 ### Quick debugging
 

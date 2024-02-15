@@ -86,7 +86,7 @@ class GRN:
         self.eligible_regulators = eligible_regulators
         if validate_immediately:
             print("Checking the training data.")
-            assert self.check_perturbation_dataset()
+            assert self.check_perturbation_dataset(is_timeseries = False, is_perturbation = False) # Less stringent version of checks
         if self.feature_extraction.lower().startswith("geneformer"):
             assert self.eligible_regulators is None, "You may not constrain the set of regulators when using GeneFormer feature extraction."
         print("Done.")
@@ -266,6 +266,7 @@ class GRN:
             assert network_prior=="ignore", "Our interface to GEARS cannot currently include custom networks."
             assert cell_type_sharing_strategy=="identical", "Our interface to GEARS cannot currently fit each cell type separately."
             assert predict_self, "Our interface to GEARS cannot rule out autoregulation. Set predict_self=True."
+            assert self.check_perturbation_dataset(is_timeseries = False, is_perturbation = True) # Run a more stringent version of the data format checks
             # Data setup according to GEARS data tutorial:
             # https://github.com/snap-stanford/GEARS/blob/master/demo/data_tutorial.ipynb 
             def reformat_perturbation_for_gears(perturbation):
@@ -356,7 +357,7 @@ class GRN:
             try:
                 _, constraint_mode, model_type, do_use_polynomials = method.split("-")
             except:
-                raise ValueError("DCDFG expects hyphen-separated string DCDFG-constraint-model-do_polynomials like 'DCDFG-spectral_radius-mlplr-false'.")
+                raise ValueError("DCDFG expects 'method' to be a hyphen-separated string DCDFG-constraint-model-do_polynomials like 'DCDFG-spectral_radius-mlplr-false'.")
             print(f"""DCDFG args parsed as:
                constraint_mode: {constraint_mode}
                     model_type: {model_type}
@@ -368,6 +369,7 @@ class GRN:
                 constraint_mode = constraint_mode,
                 model_type = model_type,
                 do_use_polynomials = do_use_polynomials,
+                regularization_parameter = pruning_parameter,
                 **kwargs
             )
         else:     
@@ -591,7 +593,8 @@ class GRN:
             assert HAS_NETWORKS, "To use the 'regulon' backend you must have access to our load_networks module."
             assert type(self.network) is load_networks.LightNetwork, "To use the 'regulon' backend you must provide a network structure."
             for i,perturbation in enumerate(perturbations):
-                logfc = perturbation[1] - predictions[i, perturbation[0]].X
+                assert len(perturbation[0].split(","))==1, "the 'regulon' backend currently only handles single perturbations."
+                logfc = float(perturbation[1]) - predictions[i, perturbation[0]].X
                 targets = self.network.get_targets(perturbation[0])["target"]
                 targets = list(set(predictions.var_names).intersection(targets))
                 if len(targets) > 0:
@@ -989,9 +992,9 @@ class GRN:
         print(allowed_methods,     flush=True)
         raise ValueError("method must start with an allowed prefix or must equal an allowed value (these will be printed to stdout).")  
 
-    def check_perturbation_dataset(self):
+    def check_perturbation_dataset(self, **kwargs):
         if CAN_VALIDATE:
-            return load_perturbations.check_perturbation_dataset(ad=self.train)
+            return load_perturbations.check_perturbation_dataset(ad=self.train, **kwargs)
         else:
             raise Exception("load_perturbations is not installed, so cannot validate data. Set validate_immediately=False.")
 

@@ -6,9 +6,12 @@ import pandas as pd
 import anndata
 import celloracle as co
 import warnings
-train = sc.read_h5ad("from_to_docker/train.h5ad")
-network = co.data.load_human_promoter_base_GRN() #???("from_to_docker/network.parquet")
+from load_networks import LightNetwork, pivotNetworkLongToWide
 
+train = sc.read_h5ad("from_to_docker/train.h5ad")
+# network = co.data.load_human_promoter_base_GRN() 
+network = LightNetwork(files = ["from_to_docker/network.parquet"])
+network = pivotNetworkLongToWide(network.get_all())
 with open(os.path.join("from_to_docker/perturbations.json")) as f:
     perturbations = json.load(f)
 with open(os.path.join("from_to_docker/kwargs.json")) as f:
@@ -20,9 +23,11 @@ print("Importing data and preprocessing")
 oracle = co.Oracle()
 sc.neighbors.neighbors(train)
 sc.tl.louvain(train)
-oracle.import_anndata_as_raw_count(adata=train,
-                                cluster_column_name="louvain",
-                                embedding_name="X_pca")
+oracle.import_anndata_as_raw_count(
+    adata=train,
+    cluster_column_name="louvain",
+    embedding_name="X_pca"
+)
 oracle.import_TF_data(TF_info_matrix=network)
 oracle.perform_PCA()
 n_comps = 50
@@ -56,13 +61,14 @@ predictions = anndata.AnnData(
     }), 
     var = train.var,
 )
-for goi, level in perturbations:
+for i, goilevel in enumerate(perturbations):
+    goi, level = goilevel
     print("Predicting " + goi)
     try:
         oracle.simulate_shift(perturb_condition={goi: level}, n_propagation=3, ignore_warning = True)
-        predictions[goi, :] = oracle.adata[oracle.adata.obs["is_control"],:].layers['simulated_count'].squeeze()
+        predictions[i, :].X = oracle.adata[oracle.adata.obs["is_control"],:].layers['simulated_count'].squeeze().mean(0)
     except ValueError as e:
-        predictions[goi, :] = np.nan
+        predictions[i, :].X = np.nan
         print("Prediction failed for " + goi + " with error " + str(e))
 
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

@@ -42,6 +42,9 @@ RUN cd $HOME/CellOracle \
  && cd  \
  && rm -r CellOracle
 
+RUN cd ~ && git clone "https://github.com/ekernf01/load_networks"
+RUN cd ~ && pip install -e load_networks/
+
 # This python script applies CO, using the contents of a folder `to_from_docker` as input.
 COPY ./train.py /train.py
 

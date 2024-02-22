@@ -354,7 +354,7 @@ class GRN:
             assert network_prior=="ignore", "DCDFG cannot currently include known network structure."
             assert cell_type_sharing_strategy=="identical", "DCDFG cannot currently fit each cell type separately."
             assert not predict_self, "DCDFG cannot include autoregulation."
-            factor_graph_model = dcdfg_wrapper.DCDFGWrapper()
+            factor_graph_model = dcdfg_wrapper.DCDFGCV()
             try:
                 _, constraint_mode, model_type, do_use_polynomials = method.split("-")
             except:
@@ -370,7 +370,6 @@ class GRN:
                 constraint_mode = constraint_mode,
                 model_type = model_type,
                 do_use_polynomials = do_use_polynomials,
-                regularization_parameter = pruning_parameter,
                 **kwargs
             )
         else:     

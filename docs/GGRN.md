@@ -79,7 +79,7 @@ We formalize these alternatives with a keyword argument `cell_type_sharing_strat
 
 To predict the effect of perturbing gene $j$ to level $z$ (e.g. $z=0$ for a knockout), an obvious choice is to start with control expression $X$, set $X_j \leftarrow z$, and then set $X \leftarrow F(X)$. For models like Dynamo, PRESCIENT, ARMADA, and ScanBMA that are coupled to an explicit time-scale, an entire trajectory can be computed by iterating this process. For steady-state models, the amount of time simulated by a single iteration is unclear. In DCD-FG, typically a single iteration is used. CellOracle leaves this to the user, recommending 3 iterations. Dictys proceeds until a steady state is reached.
 
-We formalize this with a keyword argument `prediction_timescale` that accepts any positive integer. 
+We formalize this with a keyword argument `prediction_timescale` that accepts a list of positive numbers specifying the time-point(s) to predict.
 
 #### Perturbation persistence 
 
@@ -99,7 +99,7 @@ GGRN can describe methods by:
 
 - `matching_method`: "steady_state", "closest", "user", "random", "optimal_transport"
 - `do_perturbations_persist`: boolean
-- `prediction_timescale`: positive int
+- `prediction_timescale`: list of positive numbers
 - `regression_method`: A method from sklearn, e.g. "KernelRidge"
 - `eligible_regulators`: A list of all genes to use as features; often a list of all TFs
 - `feature_extraction`: "mRNA" or "GeneFormer", possibly with additional options in the future

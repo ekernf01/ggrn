@@ -106,7 +106,7 @@ class GRN:
         feature_extraction: str = "mrna",
         low_dimensional_structure: str = None,
         low_dimensional_training: str = None,
-        prediction_timescale: int = 1, 
+        prediction_timescale: list = [1], 
         predict_self: str = False,   
         do_parallel: bool = True,
         kwargs = dict(),
@@ -143,14 +143,18 @@ class GRN:
                 If "SVD", perform an SVD on the data.
                 If "fixed", use a user-provided projection matrix.
                 If "supervised", learn the projection and its (approximate) inverse via backprop.
-            prediction_timescale (int, optional): For time-series models, how many steps separate each observation from its paired control.
+            prediction_timescale (list, optional): For time-series models, the sequence of timepoints to make predictions at.
+                Soon we hope to ignore this arg during training and instead include time-point info per sample in the input AnnData.  
+                But we do quickly check it to avoid letting users waste time training models that have no time component.
             predict_self (bool, optional): Should e.g. POU5F1 activity be used to predict POU5F1 expression? Defaults to False.
             test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.
             kwargs: Passed to DCDFG or GEARS. See help(dcdfg_wrapper.DCDFGWrapper.train). 
         """
+        if not isinstance(prediction_timescale, list):
+            prediction_timescale = [prediction_timescale]
         if self.feature_extraction.lower().startswith("geneformer"):            
             assert predict_self, "GGRN cannot exclude autoregulation when using geneformer for feature extraction."
-            assert prediction_timescale == 1, "GGRN cannot do iterative prediction when using geneformer for feature extraction."
+            assert len(prediction_timescale)==1 and prediction_timescale[0]==1, "GGRN cannot do iterative prediction when using geneformer for feature extraction."
         if network_prior is None:
             network_prior = "ignore" if self.network is None else "restrictive"
         if network_prior != "ignore":
@@ -253,7 +257,7 @@ class GRN:
                 "matching_method": matching_method,
                 "low_dimensional_structure":  low_dimensional_structure,
                 "low_dimensional_training": low_dimensional_training,
-                "prediction_timescale": int(prediction_timescale),
+                "prediction_timescale": prediction_timescale,
                 "predict_self": bool(predict_self), 
             }
             with open("from_to_docker/ggrn_args.json", "x") as f:
@@ -264,6 +268,7 @@ class GRN:
             if not HAS_GEARS:
                 raise ImportError("GEARS is not installed, and related models will not be available.")
             assert len(confounders)==0, "Our interface to GEARS cannot currently include confounders."
+            assert len(prediction_timescale)==1 and prediction_timescale[0]==1, "GEARS cannot do iterative prediction. Please set prediction_timescale=[1]."
             assert network_prior=="ignore", "Our interface to GEARS cannot currently include custom networks."
             assert cell_type_sharing_strategy=="identical", "Our interface to GEARS cannot currently fit each cell type separately."
             assert predict_self, "Our interface to GEARS cannot rule out autoregulation. Set predict_self=True."
@@ -354,6 +359,7 @@ class GRN:
             assert network_prior=="ignore", "DCDFG cannot currently include known network structure."
             assert cell_type_sharing_strategy=="identical", "DCDFG cannot currently fit each cell type separately."
             assert not predict_self, "DCDFG cannot include autoregulation."
+            assert len(prediction_timescale)==1 and prediction_timescale[0]==1, "DCD-FG cannot do iterative prediction. Please set prediction_timescale=[1]."
             factor_graph_model = dcdfg_wrapper.DCDFGCV()
             try:
                 _, constraint_mode, model_type, do_use_polynomials = method.split("-")
@@ -486,7 +492,7 @@ class GRN:
         add_noise: bool = False,
         noise_sd: float = None,
         seed: int = 0,
-        prediction_timescale: int = 1,
+        prediction_timescale: list = [1],
         feature_extraction_requires_raw_data: bool = False
     ):
         """Predict expression after new perturbations.
@@ -504,10 +510,12 @@ class GRN:
                 where e is IID Gaussian with variance equal to the estimated residual variance.
             noise_sd (bool): sd of the variable e described above. Defaults to estimates from the fitted models.
             seed (int): RNG seed.
-            prediction_timescale (int): how many time-steps forward to predict.
+            prediction_timescale (list): how many time-steps forward to predict. If the list has multiple elements, we predict those points on a trajectory.
             feature_extraction_requires_raw_data (bool): We recommend to set to True with GeneFormer and False otherwise.
         """
         # Check inputs
+        if not isinstance(prediction_timescale, list):
+            prediction_timescale = [prediction_timescale]
         if type(self.models)==list and not self.models:
             raise RuntimeError("No fitted models found. You may not call GRN.predict() until you have called GRN.fit().")
         assert type(perturbations)==list, "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
@@ -521,7 +529,7 @@ class GRN:
             columns_to_transfer.append(self.training_args["cell_type_labels"])
         if predictions is None:
             predictions = _prediction_prep(
-                nrow = len(perturbations),
+                nrow = len(perturbations)*len(prediction_timescale),
                 columns_to_transfer = columns_to_transfer,
                 var = self.train.var.copy(),
             )
@@ -554,7 +562,7 @@ class GRN:
             predictions_one = toArraySafe(self.train.X[  all_controls,:]).mean(axis=0, keepdims = True)
             if feature_extraction_requires_raw_data:
                 predictions_one_raw = toArraySafe(self.train.raw.X[  all_controls,:]).mean(axis=0, keepdims = True)
-            for i in range(len(perturbations)):
+            for i in range(len(perturbations)*len(prediction_timescale)):
                 idx_str = str(i)
                 predictions.X[i, :] = predictions_one.copy()
                 if feature_extraction_requires_raw_data:
@@ -563,31 +571,38 @@ class GRN:
                     predictions.obs.loc[idx_str, col] = starting_metadata_one.loc[:,col][0]
 
         # Enforce that predictions has correct type, shape, metadata fields.
+        # Contents may be wrong; see below.
         assert type(predictions) == anndata.AnnData, f"predictions must be anndata; got {type(predictions)}"
-        assert predictions.obs.shape[0] == len(perturbations), "Starting expression must be None or an AnnData with one obs per perturbation."
+        assert predictions.obs.shape[0] == len(perturbations)*len(prediction_timescale), "Starting expression must be None or an AnnData with one obs per perturbation per timepoint."
         assert all(c in set(predictions.obs.columns) for c in columns_to_transfer), f"predictions must be accompanied by these metadata fields: \n{'  '.join(columns_to_transfer)}"
         predictions.obs["perturbation"] = "NA"
         predictions.obs["expression_level_after_perturbation"] = -999
+        # The predictions will be arranges in per-gene trajectories.
+        #     like Oct4, time1; Oct4, time2; Oct4, time3; Nanog, time1; ... 
+        # not like Oct4, time1; Nanog, time1; Myb, time1; Oct4, time2; ... 
+        predictions.obs["timepoint"] = np.resize(prediction_timescale, predictions.n_obs) # This gets recycled.  
         predictions.obs.index = [str(x) for x in range(len(predictions.obs.index))]
 
         # At this point, predictions is in the right shape, and has most of the
         # right metadata, and the expression is set to the mean of the control samples. 
         # But it doesn't have the right perturbations listed in the metadata.
         # And the perturbations have not been propagated to the features or the expression predictions. 
+        # And the timepoint is not listed correctly.
         
         # Now we implement perturbations, including altering metadata and features,
         # but not yet downstream expression. Individual methods will do that part. 
         predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
         predictions.obs["is_control"] = False
-        for i in range(len(perturbations)):
+        for i in range(len(perturbations)*len(prediction_timescale)):
             idx_str = str(i)
+            pert_idx = int(i/len(prediction_timescale)) # If there are 5 timepoints, then the perturbation increments only every 5 passes through the loop.
             # Expected input: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
-            predictions.obs.loc[idx_str, "perturbation"]                        = perturbations[i][0]
-            predictions.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[i][1]
+            predictions.obs.loc[idx_str, "perturbation"]                        = perturbations[pert_idx][0]
+            predictions.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[pert_idx][1]
             
         # Now predict the expression
         if self.training_args["method"].startswith("autoregressive"):
-            predictions = self.models.predict(perturbations = perturbations, predictions = predictions)
+            predictions = self.models.predict(perturbations = perturbations, predictions = predictions, prediction_timescale = prediction_timescale)
         elif self.training_args["method"].startswith("regulon"):
             # Assume targets go up if regulator goes up, and down if down
             assert HAS_NETWORKS, "To use the 'regulon' backend you must have access to our load_networks module."
@@ -659,22 +674,35 @@ class GRN:
                 cell_type_labels = predictions.obs[self.training_args["cell_type_labels"]]
             else:
                 cell_type_labels = None
-            for i in range(prediction_timescale):
+            for current_time in range(max(prediction_timescale)):
+                print(f"Predicting time-point {current_time}")
+                # We are computing f(f(...f(X)...)) and saving whichever timepoints are in prediction_timescale. 
+                # predictions is already in the right shape etc to contain all timepoints.
+                # We're going to use a view of the final timepoint as working memory, because it can be continuously 
+                # overwritten until the last iteration, at which point it is what we wanted anyway.
+                is_last = predictions.obs["timepoint"]==max(prediction_timescale)
                 starting_features = self.extract_features(
-                    train = match_controls(predictions, matching_method = "steady_state", matched_control_is_integer=False), # Feature extraction requires matching to be done already. 
+                    train = match_controls(predictions[is_last, :], 
+                                           matching_method = "steady_state", matched_control_is_integer=False), # Feature extraction requires matching to be done already. 
                     in_place=False, 
                 ).copy()
                 if feature_extraction_requires_raw_data:
                     del predictions.raw # save memory: raw data are no longer needed after feature extraction
                 gc.collect()
+                # This will be used in the next run thru this loop
                 y = self.predict_parallel(features = starting_features, cell_type_labels = cell_type_labels, do_parallel = do_parallel) 
-                for i in range(len(self.train.var_names)):
-                    predictions.X[:,i] = y[i]
+                for gene in range(len(self.train.var_names)):
+                    predictions[is_last,gene].X = y[gene]
+                # This will be output to the user or calling function                   
+                if current_time in prediction_timescale:
+                    for gene in range(len(self.train.var_names)):
+                        predictions.X[predictions.obs["timepoint"]==current_time,gene] = y[gene]
             # Set perturbed genes equal to user-specified expression, not whatever the endogenous level is predicted to be
             for i, pp in enumerate(perturbations):
                 if pp[0] in predictions.var_names:
-                    predictions[i, pp[0]].X = pp[1]
-            
+                    observations_on_this_trajectory = range(i*len(prediction_timescale), (i+1)*len(prediction_timescale))
+                    predictions[observations_on_this_trajectory, pp[0]].X = pp[1]
+
         # Add noise. This is useful for simulations. 
         if add_noise:
             np.random.seed(seed)
@@ -1242,7 +1270,7 @@ def _prediction_prep(nrow: int, columns_to_transfer: list, var: pd.DataFrame) ->
                 "expression_level_after_perturbation": -999, 
             }, 
             index = [str(i) for i in range(nrow)],
-            columns = ["perturbation", "expression_level_after_perturbation"] + columns_to_transfer,
+            columns = ["perturbation", "expression_level_after_perturbation", "timepoint"] + columns_to_transfer,
         )
     )
     return predictions

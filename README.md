@@ -26,6 +26,9 @@ Here is a simple example of how to fit a LASSO model to predict each gene from t
 ```python
 
 import ggrn.api as ggrn
+import load_perturbations
+load_perturbations.set_data_path("../../perturbation_data/perturbations")
+train = load_perturbations.load_perturbation("nakatake")
 
 # Input: adata and (optional) sparse network structure
 grn = ggrn.GRN(train, network = None, validate_immediately = False, eligible_regulators = train.var_names) 
@@ -34,10 +37,6 @@ grn = ggrn.GRN(train, network = None, validate_immediately = False, eligible_reg
 # and a column "perturbation_type" that is "overexpression" or "knockdown" or "knockout".
 # Use our validator to check your training data before proceeding.  
 grn.check_perturbation_dataset() #Or, set validate_immediately = True above
-
-# Simple feature construction -- use the mRNA levels of the TF's as a proxy for activity
-# We may add more feature construction options in the future.
-grn.extract_features(method = "tf_rna")
 
 # Specify a fitting method
 grn.fit(

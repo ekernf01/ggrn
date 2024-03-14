@@ -23,8 +23,8 @@ with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
 
 # Set defaults
 defaults = {
-    "pretrain_epochs": 5,
-    "train_epochs": 5,
+    "pretrain_epochs": 500,
+    "train_epochs": 2500,
     "save": 5, # Suggest you set this to same value as train_epochs
     "train_dt": 0.1,
 }
@@ -82,16 +82,16 @@ scaler.fit_transform(original_expression)
 
 
 # Make predictions
-# TODO: predict trajectories instead of just one final point?
-
+#
 # Let's talk about prescient timescales.
 # 
 # First, input timepoints are transformed to be consecutive starting from 0 during process_data (flag --fix_non_consecutive).
 # So if training samples are labeled 0, 2, 12, 24, and I want a prediction at time 18, I would proceed as follows. 
 # 12 is mapped to 2 and 24 is mapped to 3.
-# I want predictions at 18, so that would be mapped to 2.5 during process_data.
+# I want predictions at 18, so that would be mapped to 2.5 during process_data. I currently do piecewise linear interpolation.
 # 
-# Second, it's a continuous-time method. The natural scale to run the model on is a finer discretization of the space than the original data.
+# Second, it's a differential equation method. It's solved via time discretization, but still the natural scale to run the model on is
+# a finer discretization of the space than the original data.
 # [prescient docs](https://cgs.csail.mit.edu/prescient/documentation/) say there's a default dt of 0.1, so ten steps per time-point.
 # So if I want expression at time 2.5, I should feed 25 to num_steps below.
 # 
@@ -111,10 +111,11 @@ print("Timescale: ")
 print(time_points)
 
 predictions = anndata.AnnData(
-    X = np.zeros((len(perturbations), train.n_vars)),
+    X = np.zeros((len(perturbations)*len(time_points["predict_original"]), train.n_vars)),
     obs = pd.DataFrame({
-        "perturbation":                       [p[0] for p in perturbations], 
-        "expression_level_after_perturbation":[p[1] for p in perturbations], 
+        "perturbation":                       [p[0] for t in time_points["predict_original"] for p in perturbations],
+        "expression_level_after_perturbation":[p[1] for t in time_points["predict_original"] for p in perturbations],
+        "timepoint": np.resize(time_points["predict_original"], len(perturbations)*len(time_points["predict_original"])),
     }), 
     var = train.var,
 )
@@ -134,26 +135,25 @@ for i, goilevel in enumerate(perturbations):
         "-z", str(z), 
         "--epoch", f"{int(kwargs['train_epochs']):06}",
         "--num_pcs",  str(ggrn_args["low_dimensional_value"]),
-        "--model_path", "prescient_trained/kegg-growth-softplus_1_500-1e-06", # TODO: This is affected by PRESCIENT kwargs??
-        "--num_steps", max(time_points["predict_steps"]),
+        "--model_path", "prescient_trained/kegg-growth-softplus_1_500-1e-06", 
+        "--num_steps", str(max(time_points["predict_steps"])),
         "--num_cells", "1",
-        "--num_sims", "10",
+        "--num_sims", "1",
         "--seed", "2", 
         "-o", "prescient_trained",
     ])
     result = torch.load("prescient_trained/kegg-growth-softplus_1_500-1e-06/"
                         "seed_2"
                         "_train.epoch_" f"{int(kwargs['train_epochs']):06}"
-                        "_num.sims_" "10"
+                        "_num.sims_" "1"
                         "_num.cells_" "1"
                         "_num.steps_" "10"
                         "_subsets_" "None_None"
                         "_perturb_simulation.pt")
-    pca_predicted_embeddings = result["perturbed_sim"][0].squeeze()[time_points["predict_steps"],0,:] 
+    pca_predicted_embeddings = result["perturbed_sim"][0].squeeze()[time_points["predict_steps"],:] 
     # Now we un-do all of PRESCIENT's preprocessing in order to return data on the scale of the training data input. 
     scaled_expression = pca_model.inverse_transform(pca_predicted_embeddings)
-    predictions[i, :].X = scaler.inverse_transform(scaled_expression) # TODO: this may be 1d or 2d depending on the squeeze above.  
-
+    predictions[range(i*len(time_points["predict_original"]), (i+1)*len(time_points["predict_original"])), :].X = scaler.inverse_transform(scaled_expression) 
 
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

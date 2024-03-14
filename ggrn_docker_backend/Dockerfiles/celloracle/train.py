@@ -57,22 +57,24 @@ oracle.fit_GRN_for_simulation(alpha=10, use_cluster_specific_TFdict=True)
 
 print("Running simulations")
 predictions = anndata.AnnData(
-    X = np.zeros((len(perturbations), train.n_vars)),
+    X = np.zeros((len(perturbations)*len(ggrn_args["prediction_timescale"]), train.n_vars)),
     obs = pd.DataFrame({
-        "perturbation":                       [p[0] for p in perturbations], 
-        "expression_level_after_perturbation":[p[1] for p in perturbations], 
+        "perturbation":                       [p[0] for t in ggrn_args["prediction_timescale"] for p in perturbations],
+        "expression_level_after_perturbation":[p[1] for t in ggrn_args["prediction_timescale"] for p in perturbations],
+        "timepoint": np.resize(ggrn_args["prediction_timescale"], len(perturbations)*len(ggrn_args["prediction_timescale"])),
     }), 
     var = train.var,
 )
 for i, goilevel in enumerate(perturbations):
     goi, level = goilevel
     print("Predicting " + goi)
-    try:
-        oracle.simulate_shift(perturb_condition={goi: level}, n_propagation=3, ignore_warning = True)
-        predictions[i, :].X = oracle.adata[oracle.adata.obs["is_control"],:].layers['simulated_count'].squeeze().mean(0)
-    except ValueError as e:
-        predictions[i, :].X = np.nan
-        print("Prediction failed for " + goi + " with error " + str(e))
+    for time_ordinal, time_quantitative in enumerate(ggrn_args["prediction_timescale"]):
+        try:
+            oracle.simulate_shift(perturb_condition={goi: level}, n_propagation=time_quantitative, ignore_warning = True)
+            predictions[i*len(ggrn_args["prediction_timescale"]) + time_ordinal, :].X = oracle.adata[oracle.adata.obs["is_control"],:].layers['simulated_count'].squeeze().mean(0)
+        except ValueError as e:
+            predictions[i, :].X = np.nan
+            print("Prediction failed for " + goi + " with error " + str(e))
 
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

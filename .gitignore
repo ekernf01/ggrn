@@ -1,3 +1,4 @@
+*.h5ad
 *.pyc
 wandb
 geneformer_loom_data

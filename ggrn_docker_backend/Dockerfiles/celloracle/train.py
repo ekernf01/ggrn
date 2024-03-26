@@ -7,13 +7,14 @@ import anndata
 import celloracle as co
 import warnings
 from load_networks import LightNetwork, pivotNetworkLongToWide
+import itertools
 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
 # network = co.data.load_human_promoter_base_GRN() 
 network = LightNetwork(files = ["from_to_docker/network.parquet"])
 network = pivotNetworkLongToWide(network.get_all())
-with open(os.path.join("from_to_docker/perturbations.json")) as f:
-    perturbations = json.load(f)
+predictions_metadata = pd.read_csv("predictions_metadata.csv")
+assert all(predictions_metadata.columns == np.array(['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']))
 with open(os.path.join("from_to_docker/kwargs.json")) as f:
     kwargs = json.load(f)
 with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
@@ -49,7 +50,7 @@ with warnings.catch_warnings():
     links.filter_links(p=0.001, 
                        weight="coef_abs", 
                        threshold_number=int(ggrn_args["pruning_parameter"]))
-print("filteringing")
+print("filtering")
 links.links_dict = links.filtered_links.copy()
 print("refitting")
 oracle.get_cluster_specific_TFdict_from_Links(links_object=links)
@@ -57,24 +58,39 @@ oracle.fit_GRN_for_simulation(alpha=10, use_cluster_specific_TFdict=True)
 
 print("Running simulations")
 predictions = anndata.AnnData(
-    X = np.zeros((len(perturbations)*len(ggrn_args["prediction_timescale"]), train.n_vars)),
-    obs = pd.DataFrame({
-        "perturbation":                       [p[0] for t in ggrn_args["prediction_timescale"] for p in perturbations],
-        "expression_level_after_perturbation":[p[1] for t in ggrn_args["prediction_timescale"] for p in perturbations],
-        "timepoint": np.resize(ggrn_args["prediction_timescale"], len(perturbations)*len(ggrn_args["prediction_timescale"])),
-    }), 
+    X = np.zeros((len(combinations), train.n_vars)),
+    obs = predictions_metadata,
     var = train.var,
 )
-for i, goilevel in enumerate(perturbations):
-    goi, level = goilevel
-    print("Predicting " + goi)
-    for time_ordinal, time_quantitative in enumerate(ggrn_args["prediction_timescale"]):
-        try:
-            oracle.simulate_shift(perturb_condition={goi: level}, n_propagation=time_quantitative, ignore_warning = True)
-            predictions[i*len(ggrn_args["prediction_timescale"]) + time_ordinal, :].X = oracle.adata[oracle.adata.obs["is_control"],:].layers['simulated_count'].squeeze().mean(0)
-        except ValueError as e:
-            predictions[i, :].X = np.nan
-            print("Prediction failed for " + goi + " with error " + str(e))
+for gene_level_steps in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']].unique():
+    print("Predicting " + gene_level_steps["perturbation"])
+    try:
+        oracle.simulate_shift(
+            perturb_condition={
+                gene_level_steps["perturbation"]: gene_level_steps["expression_level_after_perturbation"]
+            }, 
+            n_propagation=gene_level_steps["prediction_timescale"], 
+            ignore_warning = True
+        )
+        for starting_state in predictions.obs[['timepoint', 'cell_type']].unique():
+            prediction_index = \
+                predictions.obs["cell_type"]==starting_state["cell_type"] & \
+                predictions.obs["timepoint"]==starting_state["timepoint"] & \
+                predictions.obs["perturbation"]==gene_level_steps["perturbation"] & \
+                predictions.obs["expression_level_after_perturbation"]==gene_level_steps["expression_level_after_perturbation"] & \
+                predictions.obs["prediction_timescale"]==gene_level_steps["prediction_timescale"] 
+            train_index = oracle.adata.obs["cell_type"]==starting_state["cell_type"] & oracle.adata.obs["timepoint"]==starting_state["timepoint"]
+            predictions[prediction_index, :].X = oracle.adata[train_index,:].layers['simulated_count'].squeeze().mean(0)
+    except ValueError as e:
+        for starting_state in predictions.obs[['timepoint', 'cell_type']].unique():
+            prediction_index = \
+                predictions.obs["cell_type"]==starting_state["cell_type"] & \
+                predictions.obs["timepoint"]==starting_state["timepoint"] & \
+                predictions.obs["perturbation"]==gene_level_steps["perturbation"] & \
+                predictions.obs["expression_level_after_perturbation"]==gene_level_steps["expression_level_after_perturbation"] & \
+                predictions.obs["prediction_timescale"]==gene_level_steps["prediction_timescale"] 
+            predictions[prediction_index, :].X = np.nan
+        print("Prediction failed for " + gene_level_steps.to_csv() + " with error " + str(e))
 
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

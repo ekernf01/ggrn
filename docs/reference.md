@@ -4,10 +4,11 @@ Our implementation of the [grammar of gene regulatory networks](https://github.c
 
 Many of the combinations that can be specified in GGRN either make no sense, or would be very complex to implement. The current software offers only subsets of features. These are implemented via several separate backends. 
 
-##### Two idiosyncracies
+##### Three idiosyncracies
 
 - With apologies, the `method` arg of the `grn.fit` is currently used to specify both the backend AND, within backend #1, it is used to specify the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility. Where `regression_method` is mentioned below, it currently corresponds to the `method` arg of `GRN.fit`.
-- The `network` arg expects a LightNetwork object from our [network loader package](https://github.com/ekernf01/load_networks). If you have your own network data, you can make a LightNetwork object from a pandas dataframe or a parquet file.
+- The `network` arg expects a LightNetwork object from our [network loader package](https://github.com/ekernf01/pereggrn_networks). If you have your own network data, you can make a LightNetwork object from a pandas dataframe or a parquet file.
+- When you call `ggrn.api.predict()`, the arg `predictions_metadata` will be passed through to the predict method of your selected backend, except beforehand, `prediction_timescale` will be cartesian-producted with it, yielding one additional column in `predictions_metadata` called "prediction_timescale". To maintain DRY, any representation of `prediction_timescale` outside `predictions_metadata` should be ignored by individual backends. 
 
 #### Backend 1: steady state 
 
@@ -59,7 +60,7 @@ As the third backend of GGRN, we implement an autoregressive model that explicit
 
 - `matching_method`: "closest", "user", "random"
 - `do_perturbations_persist`: boolean
-- `prediction_timescale`: positive int. (Optimization becomes difficult rapidly; we recommend setting this to 1.) 
+- `prediction_timescale`: positive int. (Optimization becomes difficult rapidly as the value increases; we recommend setting this to 1 for now.) 
 - `regression_method`: ignored (fixed to "linear")
 - `eligible_regulators`: ignored (all genes are used)
 - `predict_self`: ignored (fixed to True)

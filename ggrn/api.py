@@ -40,12 +40,12 @@ except ImportError:
 
 # These govern expectations about data format for regulatory networks and perturbation data.
 try:
-    import load_networks
+    import pereggrn_networks
     HAS_NETWORKS = True
 except:
     HAS_NETWORKS = False
 try:
-    import load_perturbations
+    import pereggrn_perturbations
     CAN_VALIDATE = True
 except:
     CAN_VALIDATE = False
@@ -64,8 +64,8 @@ class GRN:
         """Create a GRN object.
 
         Args:
-            train (anndata.AnnData): Training data. Should conform to the requirements in load_perturbations.check_perturbation_dataset().
-            network (load_networks.LightNetwork, optional): LightNetwork object containing prior knowledge about regulators and targets.
+            train (anndata.AnnData): Training data. Should conform to the requirements in pereggrn_perturbations.check_perturbation_dataset().
+            network (pereggrn_networks.LightNetwork, optional): LightNetwork object containing prior knowledge about regulators and targets.
             eligible_regulators (List, optional): List of gene names that are allowed to be regulators. Defaults to all genes.
             validate_immediately (bool, optional): check validity of the input anndata?
             feature_extraction (str, optional): How to extract features. Defaults to "tf_rna", which uses the mRNA level of the TF. You 
@@ -77,7 +77,7 @@ class GRN:
             self.train.X = self.train.X.toarray()
         except AttributeError:
             pass
-        assert network is None or type(network)==load_networks.LightNetwork, "Network must be of type LightNetwork (see our load_networks package)."
+        assert network is None or type(network)==pereggrn_networks.LightNetwork, "Network must be of type LightNetwork (see our pereggrn_networks package)."
         self.network = network 
         self.models = [None for _ in self.train.var_names]
         self.training_args = {}
@@ -98,7 +98,7 @@ class GRN:
         method: str, 
         confounders: list = [], 
         cell_type_sharing_strategy: str = "identical",   
-        cell_type_labels: str = None,
+        cell_type_labels: str = "cell_type",
         network_prior: str = None,    
         pruning_strategy: str = "none", 
         pruning_parameter: str = None,          
@@ -118,7 +118,7 @@ class GRN:
             confounders (list): Not implemented yet.
             cell_type_sharing_strategy (str, optional): Whether to fit one model across all training data ('identical') 
                 or fit separate ones ('distinct'). Defaults to "distinct".
-            cell_type_labels (str): Name of column in self.train.obs to use for cell type labels.
+            cell_type_labels (str): Name of column in self.train.obs to use for cell type labels. This is deprecated and now it must be "cell_type".
             eligible_regulators (List, optional): List of gene names that are allowed to be regulators. Defaults to all genes.
             network_prior (str, optional): How to incorporate user-provided network structure. 
                 - "ignore": don't use it. 
@@ -150,6 +150,7 @@ class GRN:
             test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.
             kwargs: Passed to DCDFG or GEARS. See help(dcdfg_wrapper.DCDFGWrapper.train). 
         """
+        assert cell_type_labels == "cell_type", "The column with cell type labels must be called 'cell_type'."
         if not isinstance(prediction_timescale, list):
             prediction_timescale = [prediction_timescale]
         if self.feature_extraction.lower().startswith("geneformer"):            
@@ -342,7 +343,7 @@ class GRN:
                 self.models = GEARS(pert_data, device = kwargs["device"])
                 self.models.model_initialize(hidden_size = kwargs["hidden_size"])
             except Exception as e:
-                print(f"GEARS data splitting failed with error {repr(e)}. Falling back on a likely-suboptimal training strategy.")
+                print(f"GEARS failed with error {repr(e)}. Falling back on a slightly suboptimal training strategy.")
                 pert_data.prepare_split(train_gene_set_size = 0.95, seed = kwargs["seed"] )
                 pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
                 self.models = GEARS(pert_data, device = kwargs["device"])
@@ -485,8 +486,8 @@ class GRN:
 
     def predict(
         self,
-        perturbations: list,
         predictions: anndata.AnnData = None,
+        predictions_metadata: pd.DataFrame = None,
         control_subtype = None,
         do_parallel: bool = True,
         add_noise: bool = False,
@@ -498,11 +499,16 @@ class GRN:
         """Predict expression after new perturbations.
 
         Args:
-            perturbations (iterable of tuples): Iterable of tuples with gene and its expression after 
-                perturbation, e.g. {("POU5F1", 0.0), ("NANOG", 0.0), ("non_targeting", np.nan)}. Anything with
-                expression np.nan will be treated as a control, no matter the name.
             predictions (anndata.AnnData): Expression prior to perturbation, in the same shape as the output predictions. If 
                 None, starting state will be set to the mean of the training data control expression values.
+            predictions_metadata (pd.DataFrame):  Dataframe with columns `cell_type`, `timepoint`, `perturbation_type`, `perturbation`, and 
+                `expression_level_after_perturbation`. It will default to `predictions.obs` or `starting_expression.obs` if those 
+                are provided. The meaning is "predict expression in `cell_type` at `time_point` if `perturbation` were set to 
+                `expression_level_after_perturbation`". Some details and defaults:
+                    - `perturbation` and `expression_level_after_perturbation` can contain comma-separated strings for multi-gene perturbations, for 
+                        example "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
+                    - Anything with expression_level_after_perturbation equal to np.nan will be treated as a control, no matter the name.
+                    - If timepoint or celltype or perturbation_type are missing, the default is to copy them from the top row of self.train.obs.
             control_subtype (str): only controls with this prefix are considered. For example, 
                 in the Nakatake data there are different types of controls labeled "emerald" and "rtTA".
             do_parallel (bool): if True, use joblib parallelization. 
@@ -513,26 +519,25 @@ class GRN:
             prediction_timescale (list): how many time-steps forward to predict. If the list has multiple elements, we predict those points on a trajectory.
             feature_extraction_requires_raw_data (bool): We recommend to set to True with GeneFormer and False otherwise.
         """
-        # Check inputs
         if not isinstance(prediction_timescale, list):
             prediction_timescale = [prediction_timescale]
         if type(self.models)==list and not self.models:
             raise RuntimeError("No fitted models found. You may not call GRN.predict() until you have called GRN.fit().")
-        assert type(perturbations)==list, "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
-        assert all(type(p)==tuple  for p in perturbations), "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
-        assert all(len(p)==2       for p in perturbations), "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
-        assert all(type(p[0])==str for p in perturbations), "Perturbations must be like [('NANOG', 1.56), ('OCT4', 1.82)]"
+        assert predictions is None or predictions_metadata is None, "Provide either predictions or predictions_metadata, not both."
+        assert predictions is not None or predictions_metadata is not None, "Provide either predictions or predictions_metadata, not both."
+
+        # Some extra info to be transferred from the training data.
+        columns_to_transfer = self.training_args["confounders"].copy()
         
-        # Set up AnnData object in the right shape to contain output
-        columns_to_transfer = self.training_args["confounders"].copy() + ["perturbation_type"]
-        if self.training_args["cell_type_sharing_strategy"] != "identical":
-            columns_to_transfer.append(self.training_args["cell_type_labels"])
+        
         if predictions is None:
-            predictions = _prediction_prep(
-                nrow = len(perturbations)*len(prediction_timescale),
-                columns_to_transfer = columns_to_transfer,
+            predictions = anndata.AnnData(
+                X = np.zeros((predictions_metadata.shape[0], len(self.train.var_names))),
+                dtype=np.float32,
                 var = self.train.var.copy(),
+                obs = predictions_metadata
             )
+            
             # Raw data are needed for GeneFormer feature extraction, but otherwise, save RAM by omitting
             if feature_extraction_requires_raw_data:
                 predictions.raw = anndata.AnnData(
@@ -552,7 +557,7 @@ class GRN:
                     print(self.train.obs.head())
                     raise ValueError(f"No controls found for control_subtype {control_subtype}.")
             all_controls = np.where(all_controls)[0]
-            # Copy mean expression and metadata from the selected controls
+            # Copy mean expression and extra metadata from the selected controls
             starting_metadata_one   = self.train.obs.iloc[[all_controls[0]], :].copy()
             def toArraySafe(X):
                 try:
@@ -562,55 +567,61 @@ class GRN:
             predictions_one = toArraySafe(self.train.X[  all_controls,:]).mean(axis=0, keepdims = True)
             if feature_extraction_requires_raw_data:
                 predictions_one_raw = toArraySafe(self.train.raw.X[  all_controls,:]).mean(axis=0, keepdims = True)
-            for i in range(len(perturbations)*len(prediction_timescale)):
-                idx_str = str(i)
-                predictions.X[i, :] = predictions_one.copy()
+            for i in predictions.obs_names:
+                predictions[i, :].X = predictions_one.copy()
                 if feature_extraction_requires_raw_data:
-                    predictions.raw.X[i, :] = predictions_one_raw.copy()
+                    predictions.raw[i, :].X = predictions_one_raw.copy()
                 for col in columns_to_transfer:
-                    predictions.obs.loc[idx_str, col] = starting_metadata_one.loc[:,col][0]
+                    predictions.obs.loc[i, col] = starting_metadata_one.loc[:,col][0]
 
-        # Enforce that predictions has correct type, shape, metadata fields.
-        # Contents may be wrong; see below.
-        assert type(predictions) == anndata.AnnData, f"predictions must be anndata; got {type(predictions)}"
-        assert predictions.obs.shape[0] == len(perturbations)*len(prediction_timescale), "Starting expression must be None or an AnnData with one obs per perturbation per timepoint."
-        assert all(c in set(predictions.obs.columns) for c in columns_to_transfer), f"predictions must be accompanied by these metadata fields: \n{'  '.join(columns_to_transfer)}"
-        predictions.obs["perturbation"] = "NA"
-        predictions.obs["expression_level_after_perturbation"] = -999
-        # The predictions will be arranges in per-gene trajectories.
-        #     like Oct4, time1; Oct4, time2; Oct4, time3; Nanog, time1; ... 
-        # not like Oct4, time1; Nanog, time1; Myb, time1; Oct4, time2; ... 
-        predictions.obs["timepoint"] = np.resize(prediction_timescale, predictions.n_obs) # This gets recycled.  
-        predictions.obs.index = [str(x) for x in range(len(predictions.obs.index))]
+        del predictions_metadata 
+
+        # We don't want every single timeseries backend to have to resize the predictions object by a factor of len(prediction_timescale).
+        # Instead we do it up front. 
+        def update_timescale(ad, t):
+            ad = ad.copy()
+            ad.obs["prediction_timescale"] = t
+            return ad
+            
+        predictions = anndata.concat([
+            update_timescale(predictions, t) for t in prediction_timescale
+        ])
 
         # At this point, predictions is in the right shape, and has most of the
-        # right metadata, and the expression is set to the mean of the control samples. 
-        # But it doesn't have the right perturbations listed in the metadata.
-        # And the perturbations have not been propagated to the features or the expression predictions. 
-        # And the timepoint is not listed correctly.
-        
-        # Now we implement perturbations, including altering metadata and features,
-        # but not yet downstream expression. Individual methods will do that part. 
+        # right metadata, and the expression is (mostly) set to the mean of the control samples.
+        # Perturbed genes are set to the specified values in .obs, but not .X. 
+        # But, the perturbations have not been propagated to the features or the expression predictions. 
+        assert type(predictions) == anndata.AnnData, f"predictions must be anndata; got {type(predictions)}"
         predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
         predictions.obs["is_control"] = False
-        for i in range(len(perturbations)*len(prediction_timescale)):
-            idx_str = str(i)
-            pert_idx = int(i/len(prediction_timescale)) # If there are 5 timepoints, then the perturbation increments only every 5 passes through the loop.
-            # Expected input: comma-separated strings like ("C6orf226,TIMM50,NANOG", "0,0,0") 
-            predictions.obs.loc[idx_str, "perturbation"]                        = perturbations[pert_idx][0]
-            predictions.obs.loc[idx_str, "expression_level_after_perturbation"] = perturbations[pert_idx][1]
-            
+        if 'perturbation_type' not in predictions.obs.columns:
+            if "perturbation_type" not in self.train.obs.columns:
+                raise KeyError("A column perturbation_type must be present in predictions_metadata, or in predictions.obs, or in self.train.obs.")
+            predictions.obs["perturbation_type"] = self.train.obs["perturbation_type"][0]
+        if 'timepoint' not in predictions.obs.columns:
+            if "timepoint" not in self.train.obs.columns:
+                self.train.obs["timepoint"] = 1
+            predictions.obs["timepoint"] = self.train.obs["timepoint"][0]
+        if 'cell_type' not in predictions.obs.columns:
+            if "cell_type" not in self.train.obs.columns:
+                self.train.obs["cell_type"] = "unknown"
+            predictions.obs["cell_type"] = self.train.obs["cell_type"][0]       
+        predictions.obs.index = [str(x) for x in range(len(predictions.obs.index))]
+        desired_cols = columns_to_transfer + ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", "is_control"]
+        for c in desired_cols:
+            assert c in set(predictions.obs.columns), f"predictions must be accompanied by a metadata field {c}"
+        
         # Now predict the expression
         if self.training_args["method"].startswith("autoregressive"):
-            predictions = self.models.predict(perturbations = perturbations, predictions = predictions, prediction_timescale = prediction_timescale)
+            predictions = self.models.predict(predictions = predictions, prediction_timescale = prediction_timescale)
         elif self.training_args["method"].startswith("regulon"):
             # Assume targets go up if regulator goes up, and down if down
-            assert HAS_NETWORKS, "To use the 'regulon' backend you must have access to our load_networks module."
-            assert type(self.network) is load_networks.LightNetwork, "To use the 'regulon' backend you must provide a network structure."
-            for i,perturbation in enumerate(perturbations):
-                assert len(perturbation[0].split(","))==1, "the 'regulon' backend currently only handles single perturbations."
-                logfc = float(perturbation[1]) - predictions[i, perturbation[0]].X
-                targets = self.network.get_targets(perturbation[0])["target"]
+            assert HAS_NETWORKS, "To use the 'regulon' backend you must have access to our pereggrn_networks module."
+            assert type(self.network) is pereggrn_networks.LightNetwork, "To use the 'regulon' backend you must provide a network structure."
+            for i,row in predictions.obs.iterrows():
+                assert len(row["perturbation"].split(","))==1, "the 'regulon' backend currently only handles single perturbations."
+                logfc = float(row["expression_level_after_perturbation"]) - predictions[i, row["perturbation"]].X
+                targets = self.network.get_targets(row[0])["target"]
                 targets = list(set(predictions.var_names).intersection(targets))
                 if len(targets) > 0:
                     predictions[i, targets].X = predictions[i, targets].X + logfc
@@ -626,8 +637,7 @@ class GRN:
             self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
             self.train.write_h5ad("from_to_docker/train.h5ad")
             self.network.get_all().to_parquet("from_to_docker/network.parquet")
-            with open("from_to_docker/perturbations.json", 'w') as f:
-                json.dump(perturbations, f)
+            predictions.obs.to_csv("from_to_docker/predictions_metadata.csv")
             assert os.path.isfile("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
             cmd = [
                 "docker", "run", 
@@ -641,35 +651,35 @@ class GRN:
                 with open('from_to_docker/err.txt', 'w') as err:
                     return_code = subprocess.call(cmd, stdout=out, stderr=err)
             assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad"
+            input_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
             predictions = sc.read_h5ad("from_to_docker/predictions.h5ad")
             predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
             predictions.obs["expression_level_after_perturbation"] = predictions.obs["expression_level_after_perturbation"].astype(str)
-            assert all([predictions.obs.loc[idx, "perturbation"] == perturbations[i][0] 
-                        for i,idx in enumerate(predictions.obs_names)]), \
-                "Method in Docker container violated expectations of GGRN: Output must contain the " + \
-                "perturbations in the expected order, labeled in adata.obs['perturbation']"
-            assert all([predictions.obs.loc[idx, "expression_level_after_perturbation"] == str(perturbations[i][1])
-                        for i,idx in enumerate(predictions.obs_names)]), \
-                "Method in Docker container violated expectations of GGRN: Output must contain the " + \
-                "expression levels after perturbation in the expected order, labeled in adata.obs['expression_level_after_perturbation']"
+            for c in ["perturbation", "expression_level_after_perturbation", "timepoint", "cell_type"]:
+                assert all(input_metadata[c] == predictions.obs[c]), \
+                    "Method in Docker container violated expectations of GGRN: Output must contain the " + \
+                    f"predictions in the expected order, with .obs matching from_to_docker/predictions_metadata.csv. Bad column: {c}"
             assert all(predictions.var_names == self.train.var_names), \
                 "Method in Docker container violated expectations of GGRN:" + \
                 "Variable names must be identical between training and test data."
         elif self.training_args["method"].startswith("DCDFG"):
-            predictions = self.models.predict(perturbations, baseline_expression = predictions.X)
+            predictions = self.models.predict(
+                predictions.obs[["perturbation", 'timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']], 
+                baseline_expression = predictions.X
+            )
         elif self.training_args["method"].startswith("GEARS"):
-            non_control = [p for p in perturbations if all(g in self.models.pert_list for g in p[0].split(","))]
-            # GEARS does not need expression level after perturbation
-            non_control = [p[0] for p in non_control]
-            # GEARS prediction is slow so it helps a lot to remove the dupes.
+            # GEARS does not need expression level after perturbation, just gene names. 
+            # The gene names must be in GEARS' GO graph.
+            non_control = [p for p in predictions.obs["perturbation"] if all(g in self.models.pert_list for g in p.split(","))]
+            # GEARS prediction is slow enough that it helps a lot to avoid duplicating work.
             non_control = list(set(non_control))
-            # Input is list of lists
+            # Input to GEARS is list of lists
             y = self.models.predict([p.split(",") for p in non_control])
             # Result is a dict with keys like "FOXA1_HNF4A"
-            for i, p in enumerate(perturbations): 
-                if p[0] in self.models.pert_list:
-                    predictions.X[i,:] = y[p[0].replace(",", "_")]
-        else: 
+            for i, p in predictions.obs.iterrows(): 
+                if p in self.models.pert_list:
+                    predictions.X[i,:] = y[p["perturbation"].replace(",", "_")]
+        else: # backend 1, regression-based
             if self.training_args["cell_type_sharing_strategy"] == "distinct":
                 cell_type_labels = predictions.obs[self.training_args["cell_type_labels"]]
             else:
@@ -679,11 +689,14 @@ class GRN:
                 # We are computing f(f(...f(X)...)) and saving whichever timepoints are in prediction_timescale. 
                 # predictions is already in the right shape etc to contain all timepoints.
                 # We're going to use a view of the final timepoint as working memory, because it can be continuously 
-                # overwritten until the last iteration, at which point it is what we wanted anyway.
+                # overwritten until the last iteration. By the final iteration, it is what we wanted anyway.
                 is_last = predictions.obs["timepoint"]==max(prediction_timescale)
                 starting_features = self.extract_features(
-                    train = match_controls(predictions[is_last, :], 
-                                           matching_method = "steady_state", matched_control_is_integer=False), # Feature extraction requires matching to be done already. 
+                    # Feature extraction requires matching to be done already. 
+                    train = match_controls(
+                        predictions[is_last, :].copy(), 
+                        matching_method = "steady_state", 
+                        matched_control_is_integer=False),
                     in_place=False, 
                 ).copy()
                 if feature_extraction_requires_raw_data:
@@ -698,10 +711,12 @@ class GRN:
                     for gene in range(len(self.train.var_names)):
                         predictions.X[predictions.obs["timepoint"]==current_time,gene] = y[gene]
             # Set perturbed genes equal to user-specified expression, not whatever the endogenous level is predicted to be
-            for i, pp in enumerate(perturbations):
-                if pp[0] in predictions.var_names:
-                    observations_on_this_trajectory = range(i*len(prediction_timescale), (i+1)*len(prediction_timescale))
-                    predictions[observations_on_this_trajectory, pp[0]].X = pp[1]
+            for i in predictions.obs_names:
+                for j,gene_name in enumerate(predictions.obs.loc[i, "perturbation"].split(",")):
+                    if gene_name in predictions.var:
+                        elap = str(predictions.obs.loc[i, "expression_level_after_perturbation"]).split(",")[j]
+                        if pd.notnull(elap):
+                            predictions[i, gene_name].X = float(elap)
 
         # Add noise. This is useful for simulations. 
         if add_noise:
@@ -885,7 +900,7 @@ class GRN:
         """
 
         if pruning_strategy == "prune_and_refit":
-            assert HAS_NETWORKS, "Pruning network structure is not available without our load_networks module."
+            assert HAS_NETWORKS, "Pruning network structure is not available without our pereggrn_networks module."
             print("Fitting")
             self.models = self.fit_models_parallel(
                 FUN = FUN, 
@@ -946,7 +961,7 @@ class GRN:
             pruned_network = pruned_network.nlargest(int(pruning_parameter), "abs_weight")
             del pruned_network["abs_weight"]
             print("Re-fitting with just features that survived pruning")
-            self.network = load_networks.LightNetwork(df=pruned_network)
+            self.network = pereggrn_networks.LightNetwork(df=pruned_network)
             self.training_args["network_prior"] = "restrictive"
             self.models = self.fit_models_parallel(
                 FUN = FUN, 
@@ -1028,9 +1043,9 @@ class GRN:
 
     def check_perturbation_dataset(self, **kwargs):
         if CAN_VALIDATE:
-            return load_perturbations.check_perturbation_dataset(ad=self.train, **kwargs)
+            return pereggrn_perturbations.check_perturbation_dataset(ad=self.train, **kwargs)
         else:
-            raise Exception("load_perturbations is not installed, so cannot validate data. Set validate_immediately=False.")
+            raise Exception("pereggrn_perturbations is not installed, so cannot validate data. Set validate_immediately=False.")
 
     def predict_parallel(self, features, cell_type_labels, network = None, do_parallel = True): 
         if network is None:
@@ -1215,7 +1230,7 @@ def get_regulators(eligible_regulators, predict_self: bool, network_prior: str, 
             This completely overrides the network data; presence or absence of self-loops in the network is irrelevant.
         network_prior (str): see GRN.fit docs
         target (str): target gene
-        network (load_networks.LightNetwork): see GRN.fit docs
+        network (pereggrn_networks.LightNetwork): see GRN.fit docs
         cell_type: if network structure is cell-type-specific, which cell type to use when getting regulators.
 
     Returns:
@@ -1248,32 +1263,6 @@ def get_regulators(eligible_regulators, predict_self: bool, network_prior: str, 
         return ["NO_REGULATORS"]
     else:
         return selected_features
-
-def _prediction_prep(nrow: int, columns_to_transfer: list, var: pd.DataFrame) -> anndata.AnnData:
-    """Prior to generating predictions, set up an empty container in the right shape.
-
-    Args:
-        nrow (int): Number of samples 
-        columns_to_transfer (list): List of additional columns to include in .obs.
-        var (pd.DataFrame): per-gene metadata
-
-    Returns:
-        anndata.AnnData: empty container with 0 expression
-    """
-    predictions = anndata.AnnData(
-        X = np.zeros((nrow, len(var.index))),
-        dtype=np.float32,
-        var = var,
-        obs = pd.DataFrame(
-            {
-                "perturbation":"NA", 
-                "expression_level_after_perturbation": -999, 
-            }, 
-            index = [str(i) for i in range(nrow)],
-            columns = ["perturbation", "expression_level_after_perturbation", "timepoint"] + columns_to_transfer,
-        )
-    )
-    return predictions
 
 def isnan_safe(x):
     """

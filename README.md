@@ -13,7 +13,7 @@ pip install ggrn @ git+https://github.com/ekernf01/ggrn
 With our other related packages:
 
 ```bash
-for p in load_networks load_perturbations ggrn_backend2 ggrn perturbation_benchmarking_package geneformer_embeddings
+for p in pereggrn_networks pereggrn_perturbations pereggrn ggrn ggrn_backend2 geneformer_embeddings
 do
     pip install ${p} @ http://github.com/ekernf01/${p}
 done
@@ -26,9 +26,9 @@ Here is a simple example of how to fit a LASSO model to predict each gene from t
 ```python
 
 import ggrn.api as ggrn
-import load_perturbations
-load_perturbations.set_data_path("../../perturbation_data/perturbations")
-train = load_perturbations.load_perturbation("nakatake")
+import pereggrn_perturbations
+pereggrn_perturbations.set_data_path("../../perturbation_data/perturbations")
+train = pereggrn_perturbations.load_perturbation("nakatake")
 
 # Input: adata and (optional) sparse network structure
 grn = ggrn.GRN(train, network = None, validate_immediately = False, eligible_regulators = train.var_names) 

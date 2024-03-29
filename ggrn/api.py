@@ -690,13 +690,14 @@ class GRN:
                 # predictions is already in the right shape etc to contain all timepoints.
                 # We're going to use a view of the final timepoint as working memory, because it can be continuously 
                 # overwritten until the last iteration. By the final iteration, it is what we wanted anyway.
-                is_last = predictions.obs["timepoint"]==max(prediction_timescale)
+                is_last = predictions.obs["prediction_timescale"]==max(prediction_timescale)
                 starting_features = self.extract_features(
                     # Feature extraction requires matching to be done already. 
                     train = match_controls(
                         predictions[is_last, :].copy(), 
                         matching_method = "steady_state", 
-                        matched_control_is_integer=False),
+                        matched_control_is_integer=False
+                    ),
                     in_place=False, 
                 ).copy()
                 if feature_extraction_requires_raw_data:

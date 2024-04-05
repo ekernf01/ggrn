@@ -148,7 +148,7 @@ class GRN:
                 But we do quickly check it to avoid letting users waste time training models that have no time component.
             predict_self (bool, optional): Should e.g. POU5F1 activity be used to predict POU5F1 expression? Defaults to False.
             test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.
-            kwargs: Passed to DCDFG or GEARS. See help(dcdfg_wrapper.DCDFGWrapper.train). 
+            kwargs: These are passed to the backend you chose.
         """
         assert cell_type_labels == "cell_type", "The column with cell type labels must be called 'cell_type'."
         if not isinstance(prediction_timescale, list):
@@ -372,11 +372,24 @@ class GRN:
             do_use_polynomials: {do_use_polynomials}
             """)
             do_use_polynomials = do_use_polynomials =="True"
+
+            try:
+                regularization_parameters = kwargs["regularization_parameters"].copy()
+                del kwargs["regularization_parameters"]
+            except:
+                regularization_parameters = None
+            try: 
+                latent_dimensions = kwargs["latent_dimensions"].copy()
+                del kwargs["latent_dimensions"]
+            except:
+                latent_dimensions = None
             self.models = factor_graph_model.train(
                 self.train,
                 constraint_mode = constraint_mode,
                 model_type = model_type,
                 do_use_polynomials = do_use_polynomials,
+                latent_dimensions = latent_dimensions,
+                regularization_parameters = regularization_parameters,
                 **kwargs
             )
         else:     
@@ -664,7 +677,7 @@ class GRN:
                 "Variable names must be identical between training and test data."
         elif self.training_args["method"].startswith("DCDFG"):
             predictions = self.models.predict(
-                predictions.obs[["perturbation", 'timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']], 
+                predictions.obs[["perturbation", 'timepoint', 'cell_type', "expression_level_after_perturbation", 'prediction_timescale']], 
                 baseline_expression = predictions.X
             )
         elif self.training_args["method"].startswith("GEARS"):

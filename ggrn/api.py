@@ -16,6 +16,7 @@ import gc
 import ray.tune.error
 from torch.cuda import is_available as is_gpu_available
 import subprocess
+import tempfile
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
     HAS_DCDFG = True 
@@ -60,6 +61,7 @@ class GRN:
         eligible_regulators: list = None,
         validate_immediately: bool = True,
         feature_extraction: str = "mrna",
+        memoization_folder = tempfile.mkdtemp()
     ):
         """Create a GRN object.
 
@@ -70,7 +72,7 @@ class GRN:
             validate_immediately (bool, optional): check validity of the input anndata?
             feature_extraction (str, optional): How to extract features. Defaults to "tf_rna", which uses the mRNA level of the TF. You 
                 can also specify "geneformer" to use GeneFormer to extract cell embeddings. 
-
+            memoization_folder (str, optional): Where to store memoized results, e.g. for a lengthy grid search on a cluster with a 36 hour time limit. 
         """
         self.train = train
         try:
@@ -85,6 +87,7 @@ class GRN:
         self.geneformer_finetuned = None
         self.feature_extraction = "mrna" if (feature_extraction is None or isnan_safe(feature_extraction)) else feature_extraction
         self.eligible_regulators = eligible_regulators
+        self.memoization_folder = memoization_folder
         if validate_immediately:
             print("Checking the training data.")
             assert self.check_perturbation_dataset(is_timeseries = False, is_perturbation = False) # Less stringent version of checks
@@ -390,7 +393,9 @@ class GRN:
                 do_use_polynomials = do_use_polynomials,
                 latent_dimensions = latent_dimensions,
                 regularization_parameters = regularization_parameters,
-                **kwargs
+                memoization_folder = self.memoization_folder,
+                do_clean_memoization = True, 
+                **kwargs,
             )
         else:     
             assert len(confounders)==0, "sklearn models cannot currently include confounders."

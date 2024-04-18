@@ -5,9 +5,9 @@ GGRN can interface with any GRN software that can run in a Docker container.
 You need to write a program that will run in the docker container. It must:
 
 - read training data from `from_to_docker/train.h5ad`. You can expect this training data to pass the checks in `ggrn.validate_training_data(train)`.
-- read perturbations to predict in `from_to_docker/predictions_metadata.csv`. You can expect a table with named columns `['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']`. For multi-gene perturbations, you'll find quoted comma-separated lists as strings, and yes, I'm very sorry about this. An example: "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
+- read perturbations to predict in `from_to_docker/predictions_metadata.csv`. You can expect a table containing the following columns: `['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']`. **Please return one prediction per row in this table.** For multi-gene perturbations, you'll find quoted comma-separated lists as strings, and yes, I'm very sorry about this. An example: "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
 - train your method and make those predictions, preserving the order.
-- save the predictions in `h5ad` format as `from_to_docker/predictions.h5ad`. To be ultra-safe about not scrambling them, the order is expected to match what you find in `predictions_metadata.csv`, and the `.obs` is expected to all those columns. You can reuse the boilerplate from our example in `Dockerfiles/template`.
+- save the predictions in `h5ad` format as `from_to_docker/predictions.h5ad`. To be ultra-safe about not scrambling them, the order is expected to match what you find in `predictions_metadata.csv`, and the `.obs` is expected to have all those columns. 
 
 ### Docker image
 

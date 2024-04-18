@@ -6,15 +6,15 @@ import pandas as pd
 import anndata
 import celloracle as co
 import warnings
-from load_networks import LightNetwork, pivotNetworkLongToWide
-import itertools
+from pereggrn_networks import LightNetwork, pivotNetworkLongToWide
 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
-# network = co.data.load_human_promoter_base_GRN() 
 network = LightNetwork(files = ["from_to_docker/network.parquet"])
 network = pivotNetworkLongToWide(network.get_all())
-predictions_metadata = pd.read_csv("predictions_metadata.csv")
-assert all(predictions_metadata.columns == np.array(['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']))
+predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv", index_col=0)
+expected_columns = np.array(['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale'])
+for c in expected_columns:
+    assert c in predictions_metadata.columns, f"For the ggrn celloracle backend, predictions_metadata.columns is required to contain {c}."
 with open(os.path.join("from_to_docker/kwargs.json")) as f:
     kwargs = json.load(f)
 with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
@@ -33,6 +33,7 @@ oracle.import_TF_data(TF_info_matrix=network)
 oracle.perform_PCA()
 n_comps = 50
 k = 1
+print("Running imputation")
 oracle.knn_imputation(n_pca_dims=n_comps, k=k, balanced=True, b_sight=k*8,
                         b_maxl=k*4, n_jobs=4)
 

@@ -1,1 +1,0 @@
-A Docker container to let GGRN interface to RNAForecaster.

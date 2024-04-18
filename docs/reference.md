@@ -1,14 +1,9 @@
 ### GGRN software reference
 
-Our implementation of the [grammar of gene regulatory networks](https://github.com/ekernf01/ggrn/blob/main/docs/GGRN.md) is used by constructing a GRN object, then calling its `fit` and `predict` methods. Most of the GGRN args are passed to `ggrn.api.GRN.fit()`, but `network` and `feature_extraction` are passed to the constructor `ggrn.api.GRN()`.
+This package is our implementation of the [grammar of gene regulatory networks](https://github.com/ekernf01/ggrn/blob/main/docs/GGRN.md). To make sense of this, please read that first. To use ggrn, you can construct a GRN object, then call its `fit` and `predict` methods. Most of the GGRN args are passed to `ggrn.api.GRN.fit()`, but `network` and `feature_extraction` are passed to the constructor `ggrn.api.GRN()`, and `prediction_timescale` is passed to `predict`. 
 
-Many of the combinations that can be specified in GGRN either make no sense, or would be very complex to implement. The current software offers only subsets of features. These are implemented via several separate backends. 
 
-##### Three idiosyncracies
-
-- With apologies, the `method` arg of the `grn.fit` is currently used to specify both the backend AND, within backend #1, it is used to specify the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility. Where `regression_method` is mentioned below, it currently corresponds to the `method` arg of `GRN.fit`.
-- The `network` arg expects a LightNetwork object from our [network loader package](https://github.com/ekernf01/pereggrn_networks). If you have your own network data, you can make a LightNetwork object from a pandas dataframe or a parquet file.
-- When you call `ggrn.api.predict()`, the arg `predictions_metadata` will be passed through to the predict method of your selected backend, except beforehand, `prediction_timescale` will be cartesian-producted with it, yielding one additional column in `predictions_metadata` called "prediction_timescale". To maintain DRY, any representation of `prediction_timescale` outside `predictions_metadata` should be ignored by individual backends. 
+The implementation uses several separate backends. With apologies, the `method` arg of the `grn.fit` is currently used to specify both the backend AND, within backend #1, it is used to specify the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility. Where `regression_method` is mentioned below, it currently corresponds to the `method` arg of `GRN.fit`.
 
 #### Backend 1: steady state 
 
@@ -17,7 +12,7 @@ The initial implementation offers several matching methods; flexible regression;
 - `matching_method`: "steady_state", "user", "closest", or "random"
 - `do_perturbations_persist`: ignored (fixed to True)
 - `prediction_timescale`: ignored (fixed to 1)
-- `regression_method`: A method from sklearn, e.g. `KernelRidge`
+- `regression_method`: A method from sklearn. The full list of supported methods is available from `GRN.list_regression_methods()`.
 - `eligible_regulators`: Any list of gene names
 - `predict_self`: ignored (fixed to False)
 - `feature_extraction`: "mrna" or "geneformer". With "geneformer", you cannot use prior networks.

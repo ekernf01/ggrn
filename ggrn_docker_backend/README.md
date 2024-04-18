@@ -1,4 +1,4 @@
-GGRN can interface with any GRN software that can run in a Docker container. You need to make a Docker container and a program that will run in it. The folder `from_to_docker` will be "mounted" to the container, allowing files to pass in and out. It will appear on the host machine in the working directory where GGRN is run and it will appear in the Docker container at the root of the filesystem. 
+GGRN can interface with any GRN software that can run in a Docker container. You need to make a Docker image and a program that will run in it. The folder `from_to_docker` will be "mounted" to the container, allowing files to pass in and out. It will appear on the host machine in the working directory where GGRN is run and it will appear in the Docker container at the root of the filesystem. 
 
 ### Prediction program
 
@@ -23,9 +23,9 @@ The only requirement is that when a container runs, it should run your program d
 
 ### Quick debugging
 
-Look for `test.py` next to our example Dockerfiles to 
-
-To run your container interactively, you may need to remove the `ENTRYPOINT` directive. 
+- Look for `build.sh` to see how we build and push an image. 
+- Look for `test.py` next to our example Dockerfiles to easily test your newly built image.
+- To run your container interactively, you can remove the `ENTRYPOINT` directive. Once you remove it, build the image and interact like this.
 
 ```bash
 docker run --rm -it  --mount type=bind,source=/absolute/path/to/from_to_docker/,destination=/from_to_docker    your_docker_image

@@ -1,0 +1,15 @@
+{
+    "regression_method": "docker____ekernf01/ggrn_docker_backend_celloracle", 
+    "confounders": [], 
+    "cell_type_sharing_strategy": "identical", 
+    "cell_type_labels": null, 
+    "network_prior": "ignore", 
+    "pruning_strategy": "none", 
+    "pruning_parameter": null, 
+    "matching_method": "steady_state", 
+    "low_dimensional_structure": "none", 
+    "low_dimensional_training": "svd", 
+    "low_dimensional_value": 10,
+    "prediction_timescale": [0,1], 
+    "predict_self": false
+}

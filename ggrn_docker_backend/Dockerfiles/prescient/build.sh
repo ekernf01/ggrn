@@ -9,3 +9,4 @@ docker build -t ggrn_docker_backend_prescient .
 docker tag ggrn_docker_backend_prescient ekernf01/ggrn_docker_backend_prescient
 docker login
 docker push ekernf01/ggrn_docker_backend_prescient
+python test.py

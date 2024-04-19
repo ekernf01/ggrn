@@ -7,7 +7,6 @@ import scanpy as sc
 import subprocess
 import torch
 import sklearn
-import itertools 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
 predictions_metadata = pd.read_csv("predictions_metadata.csv")
 assert all(predictions_metadata.columns == np.array(['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']))
@@ -25,7 +24,7 @@ with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
 defaults = {
     "pretrain_epochs": 500,
     "train_epochs": 2500,
-    "save": 5, # Suggest you set this to same value as train_epochs
+    "save": 2500, # Suggest you set this to same value as train_epochs
     "train_dt": 0.1,
 }
 for k in defaults:
@@ -89,12 +88,12 @@ scaler.fit_transform(original_expression)
 # 
 # Second, input timepoints are transformed to be consecutive starting from 0 during process_data (flag --fix_non_consecutive).
 # So if training samples are labeled 0, 2, 12, 24, and I want a prediction at time 18, I would proceed as follows. 
-# 12 is mapped to 2 and 24 is mapped to 3.
-# I want predictions at 18, so that would be mapped to 2.5 during process_data. I currently do piecewise linear interpolation.
+# 12 is labeled as 2 and 24 is labeled as 3.
+# I want predictions at 18, so that would be about a 2.5 during process_data. (I currently do piecewise linear interpolation.)
 # 
 # Third, it's a differential equation method. It's solved via time discretization, but still the natural scale to run the model on is
 # a finer discretization of the space than the original data.
-# [prescient docs](https://cgs.csail.mit.edu/prescient/documentation/) say there's a default dt of 0.1, so ten steps per time-point.
+# The [prescient docs](https://cgs.csail.mit.edu/prescient/documentation/) say there's a default dt of 0.1, so ten steps per time-point.
 # So if I want expression at time 2.5, I should feed 25 to num_steps below.
 # 
 # Third, as of 2024 March 13, interpolation with PRESCIENT is also tricky, and I have not read the details yet. https://github.com/gifford-lab/prescient/issues/3
@@ -124,13 +123,13 @@ for gene_level_steps in predictions.obs[['perturbation', "expression_level_after
     print("Predicting " + gene_level_steps["perturbation"])
     for starting_state in predictions.obs[['timepoint', 'cell_type']].unique():
         prediction_index = \
-            predictions.obs["cell_type"]==starting_state["cell_type"] & \
-            predictions.obs["timepoint"]==starting_state["timepoint"] & \
-            predictions.obs["perturbation"]==gene_level_steps["perturbation"] & \
-            predictions.obs["expression_level_after_perturbation"]==gene_level_steps["expression_level_after_perturbation"] & \
-            predictions.obs["num_steps"]==gene_level_steps["num_steps"] 
+            (predictions.obs["cell_type"]==starting_state["cell_type"]) & \
+            (predictions.obs["timepoint"]==starting_state["timepoint"]) & \
+            (predictions.obs["perturbation"]==gene_level_steps["perturbation"]) & \
+            (predictions.obs["expression_level_after_perturbation"]==gene_level_steps["expression_level_after_perturbation"]) & \
+            (predictions.obs["num_steps"]==gene_level_steps["num_steps"]) 
         try:
-            train_index = train.obs["cell_type"]==starting_state["cell_type"] & train.obs["timepoint"]==starting_state["timepoint"]
+            train_index = (train.obs["cell_type"]==starting_state["cell_type"]) & (train.obs["timepoint"]==starting_state["timepoint"])
             goi, level, num_steps = gene_level_steps
             assert "," not in goi, "PRESCIENT and GGRN can each handle multi-gene perturbations, but the interface between them currently cannot. Sorry."
             control = train[train_index, goi].X.mean()
@@ -165,7 +164,8 @@ for gene_level_steps in predictions.obs[['perturbation', "expression_level_after
             pca_predicted_embeddings = result["perturbed_sim"][0].squeeze()[time_points["predict_steps"],:] 
             # Now we un-do all of PRESCIENT's preprocessing in order to return data on the scale of the training data input. 
             scaled_expression = pca_model.inverse_transform(pca_predicted_embeddings)
-            predictions[prediction_index, :].X = scaler.inverse_transform(scaled_expression) 
+            for i in np.where(prediction_index):
+                predictions[i, :].X = scaler.inverse_transform(scaled_expression) 
         except ValueError as e:
             predictions[prediction_index, :].X = np.nan
             print("Prediction failed for the following genes and cell types: \n" + gene_level_steps.to_csv() + starting_state.to_csv() + "\nError text: " + str(e))

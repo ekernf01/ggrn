@@ -11,6 +11,8 @@ It must:
     - For the `network` parameter, you can read a base network from `from_to_docker/network.parquet`.
 - read custom keyword args from `from_to_docker/kwargs.json`
 - train your method and make those predictions, preserving the order.
+- log stdout to `from_to_docker/stdout.txt`
+- log stderr to `from_to_docker/err.txt`
 - save the predictions in `h5ad` format as `from_to_docker/predictions.h5ad`. To be ultra-safe about not scrambling them, the order is expected to match what you find in `predictions_metadata.csv`, and the `.obs` is expected to have all those columns. 
 
 More about `kwargs`. When using GGRN directly (not through the benchmarking code), you can pass a dict `kwargs` to `GRN.fit` in your python code. This is what gets saved to `from_to_docker/kwargs.json`. Be aware that Python may not translate perfectly to json; for instance, json lacks Python's `None` value. When using GGRN via our benchmarking framework, you can specify kwargs by adding a key `kwargs` to the `metadata.json` for your experiment. The value should be a dict containing anything you want. For more info, you can read the [pereggrn reference](https://github.com/ekernf01/perturbation_benchmarking/blob/main/docs/reference.md) on `kwargs` and `kwargs_to_expand`, and for an example, you can [consult our how-to](https://github.com/ekernf01/perturbation_benchmarking/blob/main/docs/how_to.md).

@@ -16,6 +16,7 @@ import gc
 import ray.tune.error
 from torch.cuda import is_available as is_gpu_available
 import subprocess
+import warnings
 import tempfile
 try:
     import ggrn_backend2.api as dcdfg_wrapper 
@@ -136,7 +137,6 @@ class GRN:
                 "user" (do nothing and expect an existing column 'matched_control'), or 
                 "random" (choose a random control), or 
                 "steady_state" (match each observation with itself).
-            regression_method (str): Currently only allows "linear".
             feature_extraction (str): Method of feature extraction. "mrna" or "geneformer". 
             low_dimensional_structure (str) "none" or "dynamics" or "RGQ". See also low_dimensional_training.
                 - If "none", dynamics will be modeled using the original data.
@@ -147,8 +147,6 @@ class GRN:
                 If "fixed", use a user-provided projection matrix.
                 If "supervised", learn the projection and its (approximate) inverse via backprop.
             prediction_timescale (list, optional): For time-series models, the sequence of timepoints to make predictions at.
-                Soon we hope to ignore this arg during training and instead include time-point info per sample in the input AnnData.  
-                But we do quickly check it to avoid letting users waste time training models that have no time component.
             predict_self (bool, optional): Should e.g. POU5F1 activity be used to predict POU5F1 expression? Defaults to False.
             test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.
             kwargs: These are passed to the backend you chose.
@@ -542,7 +540,7 @@ class GRN:
         if type(self.models)==list and not self.models:
             raise RuntimeError("No fitted models found. You may not call GRN.predict() until you have called GRN.fit().")
         assert predictions is None or predictions_metadata is None, "Provide either predictions or predictions_metadata, not both."
-        assert predictions is not None or predictions_metadata is not None, "Provide either predictions or predictions_metadata, not both."
+        assert predictions is not None or predictions_metadata is not None, "Provide either predictions or predictions_metadata."
 
         # Some extra info to be transferred from the training data.
         columns_to_transfer = self.training_args["confounders"].copy()
@@ -555,7 +553,8 @@ class GRN:
                 var = self.train.var.copy(),
                 obs = predictions_metadata
             )
-            
+            predictions.obs_names_make_unique()
+
             # Raw data are needed for GeneFormer feature extraction, but otherwise, save RAM by omitting
             if feature_extraction_requires_raw_data:
                 predictions.raw = anndata.AnnData(
@@ -654,6 +653,8 @@ class GRN:
             self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
             self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
             self.train.write_h5ad("from_to_docker/train.h5ad")
+            if self.network is None:
+                raise ValueError("Cannot use the celloracle backend without a base network. CellOracle base networks are usually derived from motif analysis of cell-type-specific ATAC data. Many such networks are available in out collection. Construct a LightNetwork object using pereggrn_networks.LightNetwork() and pass it to the ggrn.api.GRN constructor.")
             self.network.get_all().to_parquet("from_to_docker/network.parquet")
             predictions.obs.to_csv("from_to_docker/predictions_metadata.csv")
             assert os.path.isfile("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
@@ -668,15 +669,16 @@ class GRN:
             with open('from_to_docker/stdout.txt', 'w') as out:
                 with open('from_to_docker/err.txt', 'w') as err:
                     return_code = subprocess.call(cmd, stdout=out, stderr=err)
-            assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad"
+            assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad . You may find more info in the logs generated within the container: from_to_docker/err.txt"
             input_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
             predictions = sc.read_h5ad("from_to_docker/predictions.h5ad")
             predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
             predictions.obs["expression_level_after_perturbation"] = predictions.obs["expression_level_after_perturbation"].astype(str)
             for c in ["perturbation", "expression_level_after_perturbation", "timepoint", "cell_type"]:
-                assert all(input_metadata[c] == predictions.obs[c]), \
+                assert all( (input_metadata[c].astype(str).values == predictions.obs[c].astype(str).values) ), \
                     "Method in Docker container violated expectations of GGRN: Output must contain the " + \
                     f"predictions in the expected order, with .obs matching from_to_docker/predictions_metadata.csv. Bad column: {c}"
+
             assert all(predictions.var_names == self.train.var_names), \
                 "Method in Docker container violated expectations of GGRN:" + \
                 "Variable names must be identical between training and test data."
@@ -1021,9 +1023,8 @@ class GRN:
                 dump(self.models[i], os.path.join(folder_name, f'{target}.joblib'))
         return
 
-    def validate_method(self, method):
-        assert type(method)==str, f"method arg must be a str; got {type(method)}"
-        allowed_methods = [
+    def list_regression_methods(self):
+        return [
             "mean",
             "median",
             "GradientBoostingRegressor",
@@ -1040,6 +1041,11 @@ class GRN:
             "RidgeCV",
             "RidgeCVExtraPenalty",
         ]
+    
+    
+    def validate_method(self, method):
+        assert type(method)==str, f"method arg must be a str; got {type(method)}"
+        allowed_methods = self.list_regression_methods()
         allowed_prefixes = [
             "autoregressive",
             "GeneFormer",
@@ -1259,7 +1265,8 @@ def get_regulators(eligible_regulators, predict_self: bool, network_prior: str, 
     """
     if network_prior == "ignore":
         selected_features = eligible_regulators.copy()
-        assert network is None or network.get_all().shape[0]==0, f"Network_prior was set to 'ignore', but an informative network was passed in: \n{network}"
+        if network is None or network.get_all().shape[0]==0:
+            warnings.warn(f"Network_prior was set to 'ignore', but an informative network was passed in: \n{network}")
     elif network_prior == "restrictive":
         assert network is not None, "For restrictive network priors, you must provide the network as a LightNetwork object."
         regulators = network.get_regulators(target=target)

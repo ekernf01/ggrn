@@ -4,7 +4,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 RUN apt-get update && apt-get install -y git
 # Currently we need to use my fork of PRESCIENT in order to support h5ad input.
-RUN pip install git+https://github.com/ekernf01/prescient@3c873425e96cbd894e877361fee2671a89ff2618
+RUN pip install git+https://github.com/ekernf01/prescient@3c873425e96cbd894e877361fee2671a89ff2618  --break-system-packages
 # COPY requirements.txt . 
 # RUN pip install -r requirements.txt --break-system-packages
 # COPY prescient prescient

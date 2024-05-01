@@ -144,7 +144,7 @@ def get_unique_rows(df, factors):
     return df[factors].groupby(factors).mean().reset_index()
 
 for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturbation', "expression_level_after_perturbation", 'predict_steps', 'timepoint', 'cell_type']).iterrows():
-    print("Predicting " + current_prediction_metadata)
+    print("Predicting " + current_prediction_metadata.to_csv(sep=" "))
     prediction_index = \
         (predictions.obs["cell_type"]==current_prediction_metadata["cell_type"]) & \
         (predictions.obs["timepoint"]==current_prediction_metadata["timepoint"]) & \
@@ -153,7 +153,7 @@ for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturb
         (predictions.obs["predict_steps"]==current_prediction_metadata["predict_steps"]) 
     try:
         train_index = (train.obs["cell_type"]==current_prediction_metadata["cell_type"]) & (train.obs["timepoint"]==current_prediction_metadata["timepoint"])
-        goi, level, predict_steps = current_prediction_metadata
+        goi, level, predict_steps = current_prediction_metadata[['perturbation', "expression_level_after_perturbation", 'predict_steps']]
         assert "," not in goi, "PRESCIENT and GGRN can each handle multi-gene perturbations, but the interface between them currently cannot. Sorry."
         control = train[train_index, goi].X.mean()
         if level < control:

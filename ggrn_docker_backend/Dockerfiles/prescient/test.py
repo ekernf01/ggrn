@@ -9,8 +9,6 @@ test = pereggrn_perturbations.load_perturbation("definitive_endoderm", is_timese
 top_genes = train.var.query("highly_variable_rank <= 2000").index
 train = train[:, list(set(list(test.uns["perturbed_and_measured_genes"]) + list(top_genes)))]
 test  =  test[:, list(set(list(test.uns["perturbed_and_measured_genes"]) + list(top_genes)))]
-print(train.obs[["timepoint", "cell_type"]].head())
-print(train.obs[["timepoint", "cell_type"]].tail())
 grn = ggrn.GRN(train)
 grn.fit(
     method = "docker____ekernf01/ggrn_docker_backend_prescient", 

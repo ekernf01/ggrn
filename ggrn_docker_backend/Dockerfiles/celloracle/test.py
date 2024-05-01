@@ -14,4 +14,3 @@ pereggrn_networks.set_grn_location("../../../../network_collection/networks") # 
 grn = ggrn.GRN(train,  network=pereggrn_networks.LightNetwork("celloracle_human"))
 grn.fit(method = "docker____ekernf01/ggrn_docker_backend_celloracle", pruning_parameter = 2000)
 ad_out = grn.predict(predictions_metadata = test.obs.loc[np.random.choice(test.obs_names, 50), ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation"]])
-shutil.rmtree("from_to_docker")

@@ -10,7 +10,11 @@ import traceback
 from pereggrn_networks import LightNetwork, pivotNetworkLongToWide
 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
-network = LightNetwork(files = ["from_to_docker/network.parquet"])
+try:
+    network = LightNetwork(files = ["from_to_docker/network.parquet"])
+except FileNotFoundError as e:
+    raise ValueError("Could not read in the network (from_to_docker/network.parquet). This backend cannot use the celloracle backend without a user-provided base network. CellOracle base networks are usually derived from motif analysis of cell-type-specific ATAC data. Many such networks are available in out collection. Construct a LightNetwork object using pereggrn_networks.LightNetwork() and pass it to the ggrn.api.GRN constructor.")
+
 network = pivotNetworkLongToWide(network.get_all())
 predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv", index_col=0)
 expected_columns = np.array(['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale'])

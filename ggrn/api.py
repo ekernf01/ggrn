@@ -653,9 +653,8 @@ class GRN:
             self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
             self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
             self.train.write_h5ad("from_to_docker/train.h5ad")
-            if self.network is None:
-                raise ValueError("Cannot use the celloracle backend without a base network. CellOracle base networks are usually derived from motif analysis of cell-type-specific ATAC data. Many such networks are available in out collection. Construct a LightNetwork object using pereggrn_networks.LightNetwork() and pass it to the ggrn.api.GRN constructor.")
-            self.network.get_all().to_parquet("from_to_docker/network.parquet")
+            if self.network is not None: 
+                self.network.get_all().to_parquet("from_to_docker/network.parquet")
             predictions.obs.to_csv("from_to_docker/predictions_metadata.csv")
             assert os.path.isfile("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
             cmd = [

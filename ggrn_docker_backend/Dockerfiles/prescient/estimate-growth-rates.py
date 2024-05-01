@@ -1,6 +1,6 @@
 import prescient.utils
-import pandas as pd
-import sklearn
+import pandas as pd 
+from sklearn import preprocessing, decomposition
 import scanpy as sc
 import argparse 
 
@@ -12,11 +12,15 @@ parser.add_argument("--death_gst", default = "hs_death_msigdb_kegg.csv", require
 args = parser.parse_args()
 adata = sc.read_h5ad(args.input_h5ad)
 expr  = adata.X
+try:
+    expr = expr.toarray()
+except:
+    pass
 metadata = adata.obs.copy()
 assert "timepoint" in metadata.columns, "Metadata must have a 'timepoint' column"
-scaler = sklearn.preprocessing.StandardScaler()
+scaler = preprocessing.StandardScaler()
 xs = pd.DataFrame(scaler.fit_transform(expr), index = adata.obs_names, columns = adata.var_names)
-pca = sklearn.decomposition.PCA(n_components = 30)
+pca = decomposition.PCA(n_components = 30)
 xp_ = pca.fit_transform(xs)
 g, g_l=prescient.utils.get_growth_weights(
     xs, xp_, metadata, "timepoint", genes=list(adata.var_names), 

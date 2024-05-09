@@ -19,7 +19,7 @@ The initial implementation offers several matching methods; flexible regression;
 - `low_dimensional_structure`: ignored (fixed to "none")
 - `low_dimensional_training`: ignored
 - `pruning_strategy`: "none", "prune_and_refit"
-- `network`: An edge list containing regulators, targets, weights (optional), and cell types (optional).  
+- `network`: A LightNetwork object containing regulators, targets, weights (optional), and cell types (optional).  
 - `cell_type_sharing_strategy`: "identical", "distinct"
 
 Backend #1 is the way GGRN can use GeneFormer. A few technical notes on our use of GeneFormer: 

@@ -7,7 +7,7 @@ The implementation uses several separate backends. With apologies, the `method` 
 
 #### Backend 1: steady state 
 
-The initial implementation offers several matching methods; flexible regression; simple feature extraction or feature extraction via geneformer; rudimentary use of prior network structure; rudimentary cell type specificity; and predictions after just one step forward. It has no scheme for matching treatment samples to specific controls, no acyclic penalty, no low-dimensional structure, and no biological noise. It accepts the following inputs.
+The initial implementation offers several matching methods; flexible regression; simple feature extraction or feature extraction via geneformer; rudimentary use of prior network structure; rudimentary cell type specificity; and predictions after just one step forward. It has no scheme for matching treatment samples to specific controls and no low-dimensional structure. It accepts the following inputs.
 
 - `matching_method`: "steady_state", "user", "closest", or "random"
 - `do_perturbations_persist`: ignored (fixed to True)

@@ -1,6 +1,6 @@
 ## A grammar of inference methods for gene regulatory networks
 
-GGRN is a set of Python modules that together allow users to flexibly combine traits of different methods for gene regulatory network inference, motivated by our [benchmarking project](https://github.com/ekernf01/perturbation_benchmarking). The theory behind this effort is outlined in [`docs/GGRN.md`](https://github.com/ekernf01/ggrn/blob/main/docs/GGRN.md), which contains the same content as supplemental file 1 from our [preprint](https://www.biorxiv.org/content/10.1101/2023.07.28.551039v1), or minor updates of it. A software reference fully cataloguing our implementation is in [`docs/reference.md`](https://github.com/ekernf01/ggrn/blob/main/docs/reference.md).
+GGRN (Grammar of Gene Regulatory Networks) is a set of Python modules that together allow users to flexibly combine traits of different methods for gene regulatory network inference, motivated by our [benchmarking project](https://github.com/ekernf01/perturbation_benchmarking). The theory behind this effort is outlined in [`docs/GGRN.md`](https://github.com/ekernf01/ggrn/blob/main/docs/GGRN.md), which contains the same content as supplemental file 1 from our [preprint](https://www.biorxiv.org/content/10.1101/2023.07.28.551039v1), or minor updates of it. A software reference fully cataloguing our implementation is in [`docs/reference.md`](https://github.com/ekernf01/ggrn/blob/main/docs/reference.md).
 
 ### Installation
 

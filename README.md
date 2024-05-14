@@ -52,7 +52,7 @@ grn.fit(
 # Specify what to predict by providing a dataframe with columns columns `cell_type`, `timepoint`, `perturbation_type`, `perturbation`, and `expression_level_after_perturbation`.
 #
 # `perturbation` and `expression_level_after_perturbation` can contain comma-separated strings for multi-gene perturbations, for 
-example "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
+# example "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
 # Anything with expression_level_after_perturbation equal to np.nan will be treated as a control, no matter the name.
 # If timepoint or celltype or perturbation_type are missing, the default is to copy them from the top row of self.train.obs.
 # If the training data do not have a `cell_type` or `timepoint` column, then those *must* be omitted. Sorry; this is for backwards compatibility.

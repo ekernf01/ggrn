@@ -50,13 +50,13 @@ grn.fit(
 
 # Consult help(GGRN.api.GRN.predict) for up-to-date docs -- this may get out of date more easily. 
 # Specify what to predict by providing a dataframe with columns columns `cell_type`, `timepoint`, `perturbation_type`, `perturbation`, and `expression_level_after_perturbation`.
-#
+# The meaning is "predict expression in `cell_type` at `timepoint` if `perturbation` were set to `expression_level_after_perturbation`". Some details and defaults:
 # `perturbation` and `expression_level_after_perturbation` can contain comma-separated strings for multi-gene perturbations, for 
 # example "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
 # Anything with expression_level_after_perturbation equal to np.nan will be treated as a control, no matter the name.
 # If timepoint or celltype or perturbation_type are missing, the default is to copy them from the top row of self.train.obs.
 # If the training data do not have a `cell_type` or `timepoint` column, then those *must* be omitted. Sorry; this is for backwards compatibility.
-#
+
 # An anndata.AnnData is returned with the provided dataframe in its .obs slot.
 predictions = grn.predict(pd.DataFrame({
     "perturbation": ["POU5F1", "NANOG"],

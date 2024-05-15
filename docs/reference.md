@@ -20,6 +20,7 @@ The initial implementation offers several matching methods; flexible regression;
 - `low_dimensional_training`: ignored
 - `pruning_strategy`: "none", "prune_and_refit"
 - `network`: A LightNetwork object containing regulators, targets, weights (optional), and cell types (optional).  
+- `network_prior`: "ignore" or "restrictive"
 - `cell_type_sharing_strategy`: "identical", "distinct"
 
 Backend #1 is the way GGRN can use GeneFormer. A few technical notes on our use of GeneFormer: 
@@ -45,6 +46,7 @@ We incorporate DCD-FG as a second backend for GGRN. We offer a thin wrapper with
 - `low_dimensional_training`: ignored (fixed to "supervised")
 - `pruning_strategy`: ignored (DCD-FG's strategy is used)
 - `network`: ignored 
+- `network_prior`: fixed to "ignore" 
 - `cell_type_sharing_strategy`: ignored (fixed to "identical").
 
 For more information on our pip-installable interface to DCD-FG, see [here](https://github.com/ekernf01/ggrn_backend2). 
@@ -64,18 +66,19 @@ As the third backend of GGRN, we implement an autoregressive model that explicit
 - `low_dimensional_training`: "user", "svd", "supervised"
 - `pruning_strategy`: ignored (fixed to "none")
 - `network`: Currently ignored, but in the future, we hope to include known networks to help construct the projection when "low_dimensional_training" is "user".
+- `network_prior`: fixed to "ignore"
 - `cell_type_sharing_strategy`: ignored (set to "identical")
 
 For more information on this model, see [here](http://github.com/ekernf01/ggrn_backend3).
 
 #### Backend 4: GEARS
 
-GEARS is not well described by GGRN; it works from a different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. GGRN args are ignored. GEARS arguments, such as embedding dimension or batch size, can be passed to `grn.fit` via `kwargs`. 
+GEARS is not well described by GGRN; it works from an entirely different mathematical formulation. Nevertheless, we include an interface to GEARS in the GGRN software. GGRN args are ignored. GEARS arguments, such as embedding dimension or batch size, can be passed to `grn.fit` via `kwargs`. 
 
 Some technical notes: 
 
 - GEARS requires an internet connection (to download the GO graph). 
-- Running GEARS will generate certain files and folders as a side effect; we save training data to a folder "ggrn_gears_input". This folder is normally deleted after use, but if a run crashes, it may need to be deleted. Otherwise, it can interfere with future runs. This can also create race conditions, and we do not support calling GEARS from multiple processes that share a working directory. 
+- Running GEARS will generate certain files and folders as a side effect; we save training data to a folder "ggrn_gears_input". This folder is normally deleted after use, but if a run crashes, it may need to be deleted. Otherwise, it can interfere with future runs. This can also create race conditions, so we do not support calling GEARS from multiple processes that share a working directory. 
 - A GPU is typically required to use GEARS, but we find it is possible to use GEARS on a CPU. Depending on the version, this may require minor changes to GEARS source code: replace occurrences of `a += b` with `a = a + b` and `.to('cuda')` or `.to('cuda:0')` with `.to('cpu')`. 
 
 #### Backend 5: networks alone

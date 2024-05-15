@@ -64,9 +64,9 @@ Some models (CellOracle, Dictys) use only TF's as features when learning $F$. Ot
 
 #### Known or suspected interactions
 
-The specific pattern of connections in the network can be informed by prior knowledge about regulatory relationships -- most often, motif analysis. CellOracle, ARMADA, and SCENIC+ allow regulation of gene $j$ by regulator $k$ only if a matching motif is found near the promoter of $j$ or in a paired enhancer. Earlier iterations of ScanBMA used a similar hard *a priori* threshold, while later ScanBMA papers include the same information as an informative prior on network structure. CellOracle, Dictys, and SCENIC+ each include analysis of ATAC-seq data to find motifs and pair TF's genes via cis-regulatory elements.DCD-FG and NOTEARS variants do not use motif analysis. 
+The specific pattern of connections in the network can be informed by prior knowledge about regulatory relationships -- most often, motif analysis. CellOracle, Dictys, ARMADA, and SCENIC+ allow regulation of gene $j$ by regulator $k$ only if a matching motif is found near the promoter of $j$ or in a paired enhancer. Earlier iterations of ScanBMA used a similar hard *a priori* threshold, while later ScanBMA papers include the same information but as an informative prior rather than a hard threshold, meaning edges outside the prior-knowledge network may be added if there is sufficient evidence in the training data. 
 
-We formalize these alternatives with a keyword argument `network` that accepts a container of user-input TF-target pairs (in our software, this is always a memory-efficient LightNetwork object). The edges may be weighted and they may be cell type-specific.
+We formalize these alternatives with a keyword argument `network` that accepts a container of user-input TF-target ordered pairs (in our software, this is always a memory-efficient LightNetwork object). The edges may be weighted and they may be cell type-specific. We also include an argument `network_prior` that can take the values `ignore`, meaning `network` will not be used, or `restrictive`, meaning gene $j$ is predicted by regulator $k$ only if `network` contains that TF-target pair. In the future intermediate options like ScanBMA could be added.
 
 #### Autoregulation
 
@@ -111,6 +111,7 @@ GGRN can describe methods by:
 - `low_dimensional_training`: "user", "svd", "supervised"
 - `pruning_strategy`: "none", "prune_and_refit"
 - `network`: An edge list containing regulators, targets, weights (optional), and cell types (optional)
+- `network_prior`: "ignore" or "restrictive"
 - `cell_type_sharing_strategy`: "identical", "distinct", possibly with additional options in the future
 
 #### Limitations

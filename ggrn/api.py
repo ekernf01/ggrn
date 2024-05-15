@@ -518,13 +518,14 @@ class GRN:
             predictions (anndata.AnnData): Expression prior to perturbation, in the same shape as the output predictions. If 
                 None, starting state will be set to the mean of the training data control expression values.
             predictions_metadata (pd.DataFrame):  Dataframe with columns `cell_type`, `timepoint`, `perturbation_type`, `perturbation`, and 
-                `expression_level_after_perturbation`. It will default to `predictions.obs` or `starting_expression.obs` if those 
-                are provided. The meaning is "predict expression in `cell_type` at `time_point` if `perturbation` were set to 
+                `expression_level_after_perturbation`. It will default to `predictions.obs` if predictions is provided. 
+                The meaning is "predict expression in `cell_type` at `time_point` if `perturbation` were set to 
                 `expression_level_after_perturbation`". Some details and defaults:
                     - `perturbation` and `expression_level_after_perturbation` can contain comma-separated strings for multi-gene perturbations, for 
                         example "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
                     - Anything with expression_level_after_perturbation equal to np.nan will be treated as a control, no matter the name.
                     - If timepoint or celltype or perturbation_type are missing, the default is to copy them from the top row of self.train.obs.
+                    - If the training data do not have a `cell_type` or `timepoint` column, then those *must* be omitted. Sorry; this is for backwards compatibility.
             control_subtype (str): only controls with this prefix are considered. For example, 
                 in the Nakatake data there are different types of controls labeled "emerald" and "rtTA".
             do_parallel (bool): if True, use joblib parallelization. 
@@ -534,6 +535,8 @@ class GRN:
             seed (int): RNG seed.
             prediction_timescale (list): how many time-steps forward to predict. If the list has multiple elements, we predict those points on a trajectory.
             feature_extraction_requires_raw_data (bool): We recommend to set to True with GeneFormer and False otherwise.
+
+        Returns: AnnData with predicted expression after perturbations. The shape and .obs metadata will be the same as the input "predictions" or "predictions_metadata".
         """
         if not isinstance(prediction_timescale, list):
             prediction_timescale = [prediction_timescale]
@@ -594,7 +597,7 @@ class GRN:
         del predictions_metadata 
 
         # We don't want every single timeseries backend to have to resize the predictions object by a factor of len(prediction_timescale).
-        # Instead we do it up front. 
+        # Instead we do it here, before calling backends. 
         def update_timescale(ad, t):
             ad = ad.copy()
             ad.obs["prediction_timescale"] = t

@@ -1,0 +1,192 @@
+Importing data and preprocessing
+Running imputation
+Running ridge regression and pruning
+regressing
+Inferring GRN for endoderm_differentiation...
+filtering
+filtering
+refitting
+Running simulations
+Predicting ATF3
+    timepoint                 cell_type  ... is_control  perturbation_type
+11          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting CREB3
+   timepoint                 cell_type  ... is_control  perturbation_type
+4          4  endoderm_differentiation  ...      False          knockdown
+6          4  endoderm_differentiation  ...      False          knockdown
+
+[2 rows x 7 columns]
+Predicting ESRRA
+    timepoint                 cell_type  ... is_control  perturbation_type
+8           4  endoderm_differentiation  ...      False          knockdown
+47          4  endoderm_differentiation  ...      False          knockdown
+
+[2 rows x 7 columns]
+Predicting FOXH1
+    timepoint                 cell_type  ... is_control  perturbation_type
+3           4  endoderm_differentiation  ...      False          knockdown
+18          4  endoderm_differentiation  ...      False          knockdown
+45          4  endoderm_differentiation  ...      False          knockdown
+
+[3 rows x 7 columns]
+Predicting FOXJ3
+    timepoint                 cell_type  ... is_control  perturbation_type
+37          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting FOXJ3
+    timepoint                 cell_type  ... is_control  perturbation_type
+24          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting FOXM1
+    timepoint                 cell_type  ... is_control  perturbation_type
+13          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting FOXQ1
+    timepoint                 cell_type  ... is_control  perturbation_type
+16          4  endoderm_differentiation  ...      False          knockdown
+17          4  endoderm_differentiation  ...      False          knockdown
+38          4  endoderm_differentiation  ...      False          knockdown
+
+[3 rows x 7 columns]
+Predicting GSC
+Prediction failed for ,8
+perturbation,GSC
+expression_level_after_perturbation,0.0
+prediction_timescale,1
+ with error ValueError('Gene GSC does not have enough regulatory connection in the GRNs. Cannot perform simulation.')
+Predicting GSC
+Prediction failed for ,9
+perturbation,GSC
+expression_level_after_perturbation,1.6022441387176514
+prediction_timescale,1
+ with error ValueError('Gene GSC does not have enough regulatory connection in the GRNs. Cannot perform simulation.')
+Predicting HBP1
+Prediction failed for ,10
+perturbation,HBP1
+expression_level_after_perturbation,0.0
+prediction_timescale,1
+ with error ValueError('Gene HBP1 does not have enough regulatory connection in the GRNs. Cannot perform simulation.')
+Predicting HMBOX1
+Prediction failed for ,11
+perturbation,HMBOX1
+expression_level_after_perturbation,0.0
+prediction_timescale,1
+ with error ValueError('Gene HMBOX1 is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')
+Predicting JUND
+    timepoint                 cell_type  ... is_control  perturbation_type
+46          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting MIXL1
+Prediction failed for ,13
+perturbation,MIXL1
+expression_level_after_perturbation,0.7298426628112793
+prediction_timescale,1
+ with error ValueError('Gene MIXL1 is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')
+Predicting MLXIP
+    timepoint                 cell_type  ... is_control  perturbation_type
+19          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting MLXIP
+    timepoint                 cell_type  ... is_control  perturbation_type
+32          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting NFE2L2
+    timepoint                 cell_type  ... is_control  perturbation_type
+39          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting NFYB
+    timepoint                 cell_type  ... is_control  perturbation_type
+34          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting NFYB
+    timepoint                 cell_type  ... is_control  perturbation_type
+44          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting NR5A2
+Prediction failed for ,19
+perturbation,NR5A2
+expression_level_after_perturbation,0.0
+prediction_timescale,1
+ with error ValueError('Gene NR5A2 does not have enough regulatory connection in the GRNs. Cannot perform simulation.')
+Predicting PBX2
+Prediction failed for ,20
+perturbation,PBX2
+expression_level_after_perturbation,0.0
+prediction_timescale,1
+ with error ValueError('Gene PBX2 does not have enough regulatory connection in the GRNs. Cannot perform simulation.')
+Predicting RARA
+    timepoint                 cell_type  ... is_control  perturbation_type
+36          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting RREB1
+    timepoint                 cell_type  ... is_control  perturbation_type
+2           4  endoderm_differentiation  ...      False          knockdown
+40          4  endoderm_differentiation  ...      False          knockdown
+
+[2 rows x 7 columns]
+Predicting SMAD2
+    timepoint                 cell_type  ... is_control  perturbation_type
+9           4  endoderm_differentiation  ...      False          knockdown
+14          4  endoderm_differentiation  ...      False          knockdown
+49          4  endoderm_differentiation  ...      False          knockdown
+
+[3 rows x 7 columns]
+Predicting SOX11
+    timepoint                 cell_type  ... is_control  perturbation_type
+15          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting SOX17
+    timepoint                 cell_type  ... is_control  perturbation_type
+35          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting YY1
+    timepoint                 cell_type  ... is_control  perturbation_type
+10          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting YY1
+   timepoint                 cell_type  ... is_control  perturbation_type
+0          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting YY1
+    timepoint                 cell_type  ... is_control  perturbation_type
+25          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting ZBTB33
+   timepoint                 cell_type  ... is_control  perturbation_type
+5          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting ZIC3
+    timepoint                 cell_type  ... is_control  perturbation_type
+23          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting ZIC3
+    timepoint                 cell_type  ... is_control  perturbation_type
+41          4  endoderm_differentiation  ...      False          knockdown
+
+[1 rows x 7 columns]
+Predicting ZNF410
+Prediction failed for ,32
+perturbation,ZNF410
+expression_level_after_perturbation,0.0
+prediction_timescale,1
+ with error ValueError('Gene ZNF410 does not have enough regulatory connection in the GRNs. Cannot perform simulation.')
+Saving results.

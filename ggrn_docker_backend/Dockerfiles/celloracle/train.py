@@ -13,7 +13,7 @@ train = sc.read_h5ad("from_to_docker/train.h5ad")
 try:
     network = LightNetwork(files = ["from_to_docker/network.parquet"])
 except FileNotFoundError as e:
-    raise ValueError("Could not read in the network (from_to_docker/network.parquet). This backend cannot use the celloracle backend without a user-provided base network. CellOracle base networks are usually derived from motif analysis of cell-type-specific ATAC data. Many such networks are available in out collection. Construct a LightNetwork object using pereggrn_networks.LightNetwork() and pass it to the ggrn.api.GRN constructor.")
+    raise ValueError("Could not read in the network (from_to_docker/network.parquet). GGRN cannot use the celloracle backend without a user-provided base network. CellOracle base networks are usually derived from motif analysis of cell-type-specific ATAC data. Many such networks are available in out collection. Construct a LightNetwork object using pereggrn_networks.LightNetwork() and pass it to the ggrn.api.GRN constructor.")
 
 network = pivotNetworkLongToWide(network.get_all())
 predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv", index_col=0)
@@ -91,7 +91,7 @@ for _, gene_level_steps in get_unique_rows(predictions.obs, ['perturbation', "ex
                 (predictions.obs["prediction_timescale"]==gene_level_steps["prediction_timescale"]) 
             train_index = (oracle.adata.obs["cell_type"]==starting_state["cell_type"]) & (oracle.adata.obs["timepoint"]==starting_state["timepoint"])
             print(predictions.obs.loc[prediction_index, :])
-            for i in np.where(prediction_index):
+            for i in np.where(prediction_index)[0]:
                 predictions[i, :].X = oracle.adata[train_index,:].layers['simulated_count'].squeeze().mean(0)
     except ValueError as e:
         for _, starting_state in get_unique_rows(predictions.obs, ['timepoint', 'cell_type']).iterrows(): 

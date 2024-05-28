@@ -226,8 +226,6 @@ class GRN:
         elif method.startswith("regulon"):
             # There's no training for this; it's a simple function of the user-provided network structure. 
             pass
-        elif method.startswith("SCFormer"):
-            raise NotImplementedError("Sorry, the SCFormer backend is still in progress.")
         elif method.startswith("GeneFormerNSP"):
             raise NotImplementedError("Sorry, the GeneFormerNSP backend is still in progress.")
             # FIT:

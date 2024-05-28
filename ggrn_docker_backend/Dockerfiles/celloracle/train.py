@@ -24,7 +24,8 @@ with open(os.path.join("from_to_docker/kwargs.json")) as f:
     kwargs = json.load(f)
 with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
     ggrn_args = json.load(f)
-assert ggrn_args["pruning_parameter"] is not None, "pruning_parameter must be provided."
+if "pruning_parameter" not in ggrn_args or ggrn_args["pruning_parameter"] is None:
+    ggrn_args["pruning_parameter"] = 2000
 
 print("Importing data and preprocessing")
 sc.tl.pca(train, n_comps=50)

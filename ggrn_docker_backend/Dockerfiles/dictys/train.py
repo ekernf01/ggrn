@@ -6,6 +6,7 @@ import pandas as pd
 import scanpy as sc
 from pereggrn_networks import LightNetwork, pivotNetworkLongToWide
 import dictys.network
+print("Training a model via dictys.", flush=True)
 train = sc.read_h5ad("from_to_docker/train.h5ad")
 predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
 for c in ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']:
@@ -39,10 +40,8 @@ More information should be available in the documentation for GGRN and for PEREG
 # assert len(set(mask.index)-set(dt0.index))==0
 # assert len(set(mask.columns)-set(dt0.index))==0
 #
-#
-#
 
-print("Converting inputs to dictys' preferred format.")
+print("Converting inputs to dictys' preferred format.", flush=True)
 # Intersect the network with the expression data
 network_features = set(network.get_all_regulators()).union(set(network.get_all_one_field("target")))
 common_features = list(train.var.index.intersection(network_features))
@@ -69,7 +68,7 @@ except AttributeError:
 # Dictys expects one TF per row and CO uses one per column. We transpose the network to match the expected format.
 network.T.to_csv("mask.tsv", sep="\t")
 
-print("Running network reconstruction.")
+print("Running network reconstruction.", flush=True)
 dictys.network.reconstruct(
     fi_exp="exp.tsv",
     fi_mask="mask.tsv",

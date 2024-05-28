@@ -10,4 +10,4 @@ RUN cd ~ && pip install -e pereggrn_networks/
 
 
 COPY ./train.py /train.py
-# ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "dictys", "python", "train.py"]
+ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "dictys", "python", "train.py"]

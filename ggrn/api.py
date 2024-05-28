@@ -105,13 +105,14 @@ class GRN:
         cell_type_labels: str = "cell_type",
         network_prior: str = None,    
         pruning_strategy: str = "none", 
-        pruning_parameter: str = None,          
+        pruning_parameter: str = None,
         matching_method: str = "steady_state",
         feature_extraction: str = "mrna",
         low_dimensional_structure: str = None,
         low_dimensional_training: str = None,
+        low_dimensional_value: str = None,
         prediction_timescale: list = [1], 
-        predict_self: str = False,   
+        predict_self: str = False,
         do_parallel: bool = True,
         kwargs = dict(),
     ):
@@ -146,6 +147,7 @@ class GRN:
                 If "SVD", perform an SVD on the data.
                 If "fixed", use a user-provided projection matrix.
                 If "supervised", learn the projection and its (approximate) inverse via backprop.
+            low_dimensional_value (int): Number of dimensions to use in the low-dimensional space. 
             prediction_timescale (list, optional): For time-series models, the sequence of timepoints to make predictions at.
             predict_self (bool, optional): Should e.g. POU5F1 activity be used to predict POU5F1 expression? Defaults to False.
             test_set_genes: The genes that are perturbed in the test data. GEARS can use this extra info during training.

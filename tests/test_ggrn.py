@@ -12,6 +12,7 @@ import ggrn.api as ggrn
 import pereggrn_networks
 import pereggrn_perturbations
 import io
+from pandas.api.types import is_numeric_dtype
 
 pereggrn_perturbations.set_data_path("../../perturbation_data/perturbations")
 pereggrn_networks.set_grn_location("../../network_collection/networks")
@@ -45,6 +46,51 @@ class TestModelRuns(unittest.TestCase):
         self.assertTrue(
             ggrn.GRN(train).check_perturbation_dataset() 
         )    
+
+    def test_match_controls(self):
+        grn = ggrn.GRN(train, network = network)
+        grn.train.obs_names = [str(i) for i in grn.train.obs_names]
+        for is_int in [True, False]:
+            # We can include "user" in this list as long as it's not last. It will check a couple things and leave what's already there.
+            # In fact those checks could be useful so we'll run it in user-specified matching mode once after every other mode.
+            for mm in ["steady_state", "user",  "closest", "user", "random", "user", "optimal_transport", "user"]:
+                grn.train = ggrn.match_controls(grn.train, matching_method = mm, matched_control_is_integer=is_int) 
+                # make sure ouput is ints or strings as specified
+                if is_int: 
+                    self.assertTrue(
+                        is_numeric_dtype(grn.train.obs["matched_control"])
+                    )
+                else:
+                    self.assertTrue(
+                        grn.train.obs["matched_control"].dtype == grn.train.obs_names.dtype
+                    )
+                # make sure the controls are matched
+                if mm not in ["closest_with_unmatched_controls", "user"]:
+                    print("===============================")
+                    print(is_int)
+                    print(mm)
+                    self.assertTrue(
+                        all(pd.notnull(grn.train.obs.loc[grn.train.obs["is_control"], "matched_control"]))
+                    )
+                # Make sure steady state is correct
+                if mm == "steady_state" and not is_int:
+                    self.assertTrue(
+                        all(grn.train.obs["matched_control"]==grn.train.obs.index)
+                    )
+                if mm == "steady_state" and is_int:
+                    self.assertTrue(
+                        all(grn.train.obs["matched_control"]==range(len(grn.train.obs.index)))
+                    )                
+                # Make sure random and closest are matching to controls only
+                if mm in ["random", "closest"] and not is_int:
+                    self.assertTrue(
+                        all(grn.train.obs.loc[grn.train.obs["matched_control"], "is_control"])
+                    )
+                if mm in ["random", "closest"] and is_int:
+                    self.assertTrue(
+                        all(grn.train.obs.iloc[grn.train.obs["matched_control"], :]["is_control"])
+                    )
+
     def test_extract_features(self):
         grn    = ggrn.GRN(train, network = network)
         grn.train = ggrn.match_controls(grn.train, matching_method = "steady_state", matched_control_is_integer=False) 

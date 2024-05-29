@@ -19,7 +19,7 @@ import subprocess
 import warnings
 import tempfile
 try:
-    import ggrn_backend2.api as dcdfg_wrapper 
+    import ggrn_backend2.api as dcdfg_wrapper
     HAS_DCDFG = True 
 except ImportError:
     HAS_DCDFG = False 
@@ -39,6 +39,12 @@ try:
     HAS_GENEFORMER = True
 except ImportError:
     HAS_GENEFORMER = False
+try:
+    import wot
+    HAS_WOT = True
+except ImportError:
+    HAS_WOT = False
+
 
 # These govern expectations about data format for regulatory networks and perturbation data.
 try:
@@ -730,7 +736,7 @@ class GRN:
                 for gene in range(len(self.train.var_names)):
                     predictions[is_last,gene].X = y[gene]
                 # This will be output to the user or calling function                   
-                if current_time in prediction_timescale:
+                if current_time in prediction_timescale and current_time in predictions.obs["timepoint"]:
                     for gene in range(len(self.train.var_names)):
                         predictions.X[predictions.obs["timepoint"]==current_time,gene] = y[gene]
             # Set perturbed genes equal to user-specified expression, not whatever the endogenous level is predicted to be
@@ -1302,6 +1308,14 @@ def isnan_safe(x):
     except:
         return False
 
+# def match_timeseries():
+#     """For a timeseries dataset, match each timepoint to the previous one. 
+#     """
+#     start_time = np.min(train_data.obs["timepoint"])
+#         for t in np.sort(train_data.obs["timepoint"].unique()):
+#             if t is start_time:
+#                 continue
+#             tmap_annotated = ot_model.compute_transport_map()
 
 def match_controls(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool):
     """
@@ -1314,10 +1328,10 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
         - "closest_with_unmatched_controls" (choose the closest control for each perturbed sample, but leave each control sample unmatched)
         - "user" (do nothing and expect an existing column 'matched_control')
         - "random" (choose a random control)
+        - "optimal_transport" (match samples to controls by optimal transport, and match controls to themselves)
     matched_control_is_integer (bool): If True (default), the "matched_control" column in the obs of the returned anndata contains integers.
         Otherwise, it contains elements of adata.obs_names.
     """
-
     assert "is_control" in train_data.obs.columns, "A boolean column 'is_control' is required in train_data.obs."
     control_indices_integer = np.where(train_data.obs["is_control"])[0]
     if matching_method.lower() in {"closest", "closest_with_unmatched_controls"}:
@@ -1332,10 +1346,25 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
         for j,i in enumerate(train_data.obs.index):
             if train_data.obs.loc[i, "is_control"]:
                 train_data.obs.loc[i, "matched_control"] = np.nan if matching_method.lower() == "closest_with_unmatched_controls" else j
+    elif matching_method.lower() == "optimal_transport":
+        assert HAS_WOT, "wot is not installed, so optimal transport matching is unavailable. Please install it with 'pip install wot'."
+        os.makedirs("wot_input", exist_ok=True)
+        VAR_GENE_DS_PATH = "wot_input/train.h5ad"
+        CELL_DAYS_PATH = "wot_input/timepoints.txt"
+        pd.DataFrame({"id": train_data.obs_names, "day": [int(b) for b in train_data.obs["is_control"]]}).to_csv(CELL_DAYS_PATH, sep = "\t")
+        train_data.write_h5ad(VAR_GENE_DS_PATH)
+        wot_adata = wot.io.read_dataset(VAR_GENE_DS_PATH, obs=[CELL_DAYS_PATH])
+        ot_model  = wot.ot.OTModel(wot_adata,epsilon = 0.05, lambda1 = 1,lambda2 = 50)
+        del train_data.obs["matched_control"]
+        train_data.obs.loc[~train_data.obs["is_control"], "matched_control"] = control_indices_integer[ot_model.compute_transport_map(0,1).X.argmax(axis = 1)]
+        # Controls should be self-matched. 
+        for j,i in enumerate(train_data.obs.index):
+            if train_data.obs.loc[i, "is_control"]:
+                train_data.obs.loc[i, "matched_control"] = j
+        train_data.obs["matched_control"] = train_data.obs["matched_control"].astype(int)
+        shutil.rmtree("wot_input")
     elif matching_method.lower() == "steady_state":
         train_data.obs["matched_control"] = range(len(train_data.obs.index))
-    elif matching_method.lower() == "optimal_transport":
-        raise NotImplementedError("Sorry, cannot yet match samples to controls by optimal transport.")
     elif matching_method.lower() == "random":
         assert any(train_data.obs["is_control"]), "matching_method=='random' requires some True entries in train_data.obs['is_control']."
         train_data.obs["matched_control"] = np.random.choice(
@@ -1352,11 +1381,12 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
             mc = mc[train_data.obs["matched_control"].notnull()]
             assert all( mc.isin(train_data.obs.index) ), f"Matched control index must be in train_data.obs.index."
     else: 
-        raise ValueError("matching method must be 'closest', 'user', or 'random'.")
+        raise ValueError("matching method must be 'closest', 'user', 'optimal_transport', or 'random'.")
+
     # This index_among_eligible_observations column is useful downstream for autoregressive modeling.
     train_data.obs["index_among_eligible_observations"] = train_data.obs["matched_control"].notnull().cumsum()-1
     train_data.obs.loc[train_data.obs["matched_control"].isnull(), "index_among_eligible_observations"] = np.nan
-
+    # The above code provides an integer index for each matched control. This code is for if you want e.g. a cell barcode instead.
     if not matched_control_is_integer and matching_method.lower() != "user":
         has_matched_control = train_data.obs["matched_control"].notnull()
         train_data.obs.loc[has_matched_control, "matched_control"] = train_data.obs.index[train_data.obs.loc[has_matched_control, "matched_control"]]

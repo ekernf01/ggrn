@@ -50,11 +50,12 @@ for k in ggrn_defaults:
         ggrn_args[k] = ggrn_defaults[k]
 
 
+print("Estimating growth rates.", flush=True)
 subprocess.call(["python3", "estimate-growth-rates.py", 
                  "--input_h5ad", "from_to_docker/train.h5ad", 
                  "--outfile", "growth_rates.pt"])
 
-
+print("Processing input data.", flush=True)
 subprocess.call([
     "prescient", "process_data", 
     "-d", "from_to_docker/train.h5ad", 
@@ -66,7 +67,7 @@ subprocess.call([
     "--num_pcs", str(ggrn_args["low_dimensional_value"]), 
 ])
 
-
+print("Training model.", flush=True)
 subprocess.call([
     "prescient", "train_model", 
     "-i", "traindata.pt", 
@@ -92,6 +93,7 @@ subprocess.call([
 
 
 # Below, this PCA and scaler will help us transform predictions back to the scale of the data in from_to_docker/train.h5ad.
+print("Decoding output.", flush=True)
 original_expression = torch.load("traindata.pt")["data"]
 pca_model = torch.load("traindata.pt")["pca"]
 scaler = preprocessing.StandardScaler()
@@ -131,7 +133,7 @@ print("Timescale: ")
 print(time_points)
 predictions_metadata["predict_steps"] = [time_points["converter"][t] for t in predictions_metadata["prediction_timescale"]]
 
-print("Running simulations")
+print("Running simulations", flush = True)
 # Note the timepoint metadata is on the original scale e.g. 0, 2, 12, 24.
 # The predict_steps is on prescient's internal scale, accounting for the value of dt, e.g. 0, 10, 20, 30 if dt is 0.1.
 predictions = anndata.AnnData(

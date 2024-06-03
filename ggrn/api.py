@@ -1319,16 +1319,16 @@ def match_timeseries(train_data: anndata.AnnData, matching_method: str, matched_
     """
     timepoints = np.sort(train_data.obs["timepoint"].unique())
     assert len(timepoints) > 1, "match_timeseries requires at least two timepoints."
+    train_data.obs_names = train_data.obs_names.astype(str)
     train_data.obs["matched_control"] = np.nan
     for i in range(len(timepoints)-1, 0, -1):
-        print(f"Matching timepoint {i} to previous timepoint")
-        current = train_data[train_data.obs["timepoint"].isin(timepoints[[i-1, i]]), :]
+        current = train_data[train_data.obs["timepoint"].isin(timepoints[[i-1, i]]), :].copy()
         current.obs["is_control"] = current.obs["timepoint"] == timepoints[i-1]
-        current = match_controls(current, matching_method=matching_method, matched_control_is_integer=matched_control_is_integer)
+        current = match_controls(current, matching_method=matching_method, matched_control_is_integer=False)
         train_data.obs.loc[current.obs.index, "matched_control"] = current.obs.loc[:, "matched_control"]
     if matched_control_is_integer:
         train_data.obs["integer_index"] = range(train_data.n_obs)
-        train_data.obs["matched_control"] = train_data.obs.loc[train_data["matched_control"], "integer_index"]
+        train_data.obs["matched_control"] = [train_data.obs.loc[m, "integer_index"] if pd.notnull(m) else np.nan for m in train_data.obs.loc[:, "matched_control"]]
     return train_data
 
 def match_controls(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool):

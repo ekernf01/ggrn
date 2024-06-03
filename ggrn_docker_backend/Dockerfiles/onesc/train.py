@@ -103,7 +103,7 @@ for _, starting_state in get_unique_rows(predictions.obs, ['timepoint', 'type_an
             predictions[i, :].X = 0
             for j in range(10):
                 predictions[i, :].X = predictions[i, :].X + predicted_expression[j][gene_level_steps["prediction_timescale"], :].X
-            predictions[i, :].X = predictions[i, :].X / 10
+            predictions[i, :].X = predictions[i, :].X / 10.0
 
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

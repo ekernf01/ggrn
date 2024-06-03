@@ -140,10 +140,7 @@ class GRN:
                 - "none": don't prune the model.
                 - maybe more options will be implemented. 
             pruning_parameter (numeric, optional): e.g. lasso penalty or total number of nonzero coefficients. See "pruning_strategy" for details.
-            matching_method: (str, optional): "closest" (choose the closest control), or
-                "user" (do nothing and expect an existing column 'matched_control'), or 
-                "random" (choose a random control), or 
-                "steady_state" (match each observation with itself).
+            matching_method: (str, optional): see help(ggrn.api.match_controls).
             feature_extraction (str): Method of feature extraction. "mrna" or "geneformer". 
             low_dimensional_structure (str) "none" or "dynamics" or "RGQ". See also low_dimensional_training.
                 - If "none", dynamics will be modeled using the original data.
@@ -170,7 +167,12 @@ class GRN:
         if network_prior != "ignore":
             assert self.network is not None, "You must provide a network unless network_prior is 'ignore'."
             assert feature_extraction.lower() in {"tf_mrna", "mrna", "rna", "tf_rna"},  "Only simple feature extraction is compatible with prior network structure."
-        self.train = match_controls(self.train, matching_method, matched_control_is_integer=False) 
+        if ("timepoint" in self.train.obs.columns) and (self.train.obs["timepoint"].unique().shape[0] > 1):
+            self.train = match_timeseries(self.train, matching_method, matched_control_is_integer=False) 
+            assert "matched_control" in self.train.obs.columns, "Matching with `match_timeseries()` was not successful. Please report this issue."
+        else:
+            self.train = match_controls(self.train, matching_method, matched_control_is_integer=False) 
+            assert "matched_control" in self.train.obs.columns, "Matching with `match_controls()` was not successful. Please report this issue."
         if self.features is None:
             self.extract_features(train = self.train, in_place = True)
         self.validate_method(method)
@@ -721,6 +723,8 @@ class GRN:
                 is_last = predictions.obs["prediction_timescale"]==max(prediction_timescale)
                 starting_features = self.extract_features(
                     # Feature extraction requires matching to be done already. 
+                    # We can just tell it to extract features for each predicted instance from that same instance,
+                    # because we have already initialized it to the right starting state. 
                     train = match_controls(
                         predictions[is_last, :].copy(), 
                         matching_method = "steady_state", 
@@ -1308,14 +1312,24 @@ def isnan_safe(x):
     except:
         return False
 
-# def match_timeseries():
-#     """For a timeseries dataset, match each timepoint to the previous one. 
-#     """
-#     start_time = np.min(train_data.obs["timepoint"])
-#         for t in np.sort(train_data.obs["timepoint"].unique()):
-#             if t is start_time:
-#                 continue
-#             tmap_annotated = ot_model.compute_transport_map()
+def match_timeseries(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool):
+    """For a timeseries dataset, match observations at each timepoint to counterparts, usually at the previous timepoint. 
+    For details, see help(match_controls). This function uses match_controls internally on each pair of consecutive timepoints,
+    labeling the earlier timepoint as the controls and the later as the perturbed samples.
+    """
+    timepoints = np.sort(train_data.obs["timepoint"].unique())
+    assert len(timepoints) > 1, "match_timeseries requires at least two timepoints."
+    train_data.obs["matched_control"] = np.nan
+    for i in range(len(timepoints)-1, 0, -1):
+        print(f"Matching timepoint {i} to previous timepoint")
+        current = train_data[train_data.obs["timepoint"].isin(timepoints[[i-1, i]]), :]
+        current.obs["is_control"] = current.obs["timepoint"] == timepoints[i-1]
+        current = match_controls(current, matching_method=matching_method, matched_control_is_integer=matched_control_is_integer)
+        train_data.obs.loc[current.obs.index, "matched_control"] = current.obs.loc[:, "matched_control"]
+    if matched_control_is_integer:
+        train_data.obs["integer_index"] = range(train_data.n_obs)
+        train_data.obs["matched_control"] = train_data.obs.loc[train_data["matched_control"], "integer_index"]
+    return train_data
 
 def match_controls(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool):
     """
@@ -1324,7 +1338,7 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
     train_data (AnnData):
     matching_method (str): one of
         - "steady_state" (match each obs to itself)
-        - "closest" (choose the closest control, matching each control to itself)
+        - "closest" (choose the closest control and match each control to itself)
         - "closest_with_unmatched_controls" (choose the closest control for each perturbed sample, but leave each control sample unmatched)
         - "user" (do nothing and expect an existing column 'matched_control')
         - "random" (choose a random control)

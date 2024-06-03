@@ -47,6 +47,19 @@ class TestModelRuns(unittest.TestCase):
             ggrn.GRN(train).check_perturbation_dataset() 
         )    
 
+    def test_match_timeseries(self):
+        grn = ggrn.GRN(train, network = network)
+        train.obs["timepoint"] = np.random.randint(0, 10, len(train.obs))
+        grn.train.obs_names = [str(i) for i in grn.train.obs_names]
+        for is_int in [True, False]:
+            for mm in ["steady_state", "user",  "closest", "user", "random", "user", "optimal_transport", "user"]:
+                grn.train = ggrn.match_timeseries(grn.train, matching_method=mm, matched_control_is_integer=is_int) 
+                has_control = grn.train.obs["matched_control"].notnull()
+                # Everything that has a match should have a match at the same or an earlier timepoint.
+                self.assertTrue(
+                     all(grn.train.obs[grn.train.obs["matched_control"][has_control], "timepoint"] <= grn.train.obs["timepoint"][has_control])
+                )
+
     def test_match_controls(self):
         grn = ggrn.GRN(train, network = network)
         grn.train.obs_names = [str(i) for i in grn.train.obs_names]
@@ -66,9 +79,6 @@ class TestModelRuns(unittest.TestCase):
                     )
                 # make sure the controls are matched
                 if mm not in ["closest_with_unmatched_controls", "user"]:
-                    print("===============================")
-                    print(is_int)
-                    print(mm)
                     self.assertTrue(
                         all(pd.notnull(grn.train.obs.loc[grn.train.obs["is_control"], "matched_control"]))
                     )

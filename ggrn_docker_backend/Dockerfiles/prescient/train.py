@@ -38,6 +38,7 @@ defaults = {
     "train_epochs": 2500,
     "save": 2500, # Suggest you set this to same value as train_epochs
     "train_dt": 0.1,
+    "num_cells_to_simulate": 100,
 }
 ggrn_defaults = {
     "low_dimensional_value": 50
@@ -171,7 +172,7 @@ for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturb
             "--num_pcs",  str(ggrn_args["low_dimensional_value"]),
             "--model_path", "prescient_trained/kegg-growth-softplus_1_500-1e-06", 
             "--num_steps", str(max(time_points["predict_steps"])),
-            "--num_cells", "1",
+            "--num_cells", str(kwargs["num_cells_to_simulate"]),
             "--num_sims", "1",
             "--celltype_subset", str(current_prediction_metadata["cell_type"]), 
             "--tp_subset", str(current_prediction_metadata["timepoint"]), 
@@ -182,12 +183,14 @@ for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturb
                             "seed_2"
                             "_train.epoch_" f"{int(kwargs['train_epochs']):06}"
                             "_num.sims_" "1"
-                            "_num.cells_" "1"
+                            "_num.cells_" f"{kwargs['num_cells_to_simulate']}"
                             "_num.steps_" f"{current_prediction_metadata['predict_steps']}" 
                             "_subsets_" f"{str(current_prediction_metadata['timepoint'])}_{current_prediction_metadata['cell_type']}"
                             "_perturb_simulation.pt"
                             )
-        pca_predicted_embeddings = result["perturbed_sim"][0].squeeze()[time_points["predict_steps"],:] 
+        print(result["perturbed_sim"][0].shape)
+        pca_predicted_embeddings = result["perturbed_sim"][0][time_points["predict_steps"],:,:].mean(axis=(0,1), keepdims = False).reshape(1, -1)
+        print(pca_predicted_embeddings.shape)
         # Now we un-do all of PRESCIENT's preprocessing in order to return data on the scale of the training data input. 
         scaled_expression = pca_model.inverse_transform(pca_predicted_embeddings)
         for i in np.where(prediction_index)[0]:

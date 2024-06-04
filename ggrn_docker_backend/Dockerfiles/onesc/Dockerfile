@@ -23,7 +23,7 @@ RUN conda env create -f environment.yml
 # Make RUN commands use the new environment:
 SHELL ["conda", "run", "-n", "scanpy_env", "/bin/bash", "-c"]
 RUN apt-get update && apt-get install -y git
-RUN cd && pip install git+https://github.com/CahanLab/oneSC.git  --break-system-packages
+RUN pip install git+https://github.com/CahanLab/oneSC.git  --break-system-packages
 
 # This python script applies CO, using the contents of a folder `to_from_docker` as input.
 COPY ./train.py /train.py

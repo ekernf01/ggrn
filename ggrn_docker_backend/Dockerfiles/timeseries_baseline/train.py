@@ -48,16 +48,13 @@ def predict_one(tf: str, expression_level_after_perturbation: float, cell_type: 
         if len(next_cells) == 0:
             return np.nan
         current_cell = np.random.choice(next_cells, size = 1)
-    try:
-        return train[current_cell, :].X.toarray().mean(axis=0)
-    except AttributeError:
-        return train[current_cell, :].X.mean(axis=0)
+    return train[current_cell, :].X
     
 def predict_many(num_cells_to_simulate: int, tf: str, expression_level_after_perturbation: float, cell_type: str, timepoint: int, num_steps: int):
     average_prediction = np.zeros(train.n_vars)
     for j in range(num_cells_to_simulate):
         a_single_prediction = predict_one(tf, expression_level_after_perturbation, cell_type, timepoint, num_steps)
-        if any(pd.isnull(a_single_prediction)):
+        if any([pd.isnull(x) for x in a_single_prediction]):
             num_cells_to_simulate -= 1
         else:
             average_prediction += a_single_prediction

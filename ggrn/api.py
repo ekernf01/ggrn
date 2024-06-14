@@ -679,7 +679,11 @@ class GRN:
             with open('from_to_docker/stdout.txt', 'w') as out:
                 with open('from_to_docker/err.txt', 'w') as err:
                     return_code = subprocess.call(cmd, stdout=out, stderr=err)
-            assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad . You may find more info in the logs generated within the container: from_to_docker/err.txt"
+            with open('from_to_docker/stdout.txt', 'r') as file:
+                print(file.read())
+            with open('from_to_docker/err.txt', 'r') as file:
+                print(file.read())
+            assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad . You may find more info in the logs generated within the container: from_to_docker/err.txt , which should also get copied to stdout."
             input_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
             predictions = sc.read_h5ad("from_to_docker/predictions.h5ad")
             predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
@@ -1082,7 +1086,7 @@ class GRN:
         if CAN_VALIDATE:
             return pereggrn_perturbations.check_perturbation_dataset(ad=self.train, **kwargs)
         else:
-            raise Exception("pereggrn_perturbations is not installed, so cannot validate data. Set validate_immediately=False.")
+            raise Exception("pereggrn_perturbations is not installed, so cannot validate data. Set validate_immediately=False or install pereggrn_perturbations.")
 
     def predict_parallel(self, features, cell_type_labels, network = None, do_parallel = True): 
         if network is None:

@@ -11,7 +11,7 @@ The initial implementation offers several matching methods; flexible regression;
 
 - `matching_method`: "steady_state", "user", "closest", or "random"
 - `do_perturbations_persist`: ignored (fixed to True)
-- `prediction_timescale`: ignored (fixed to 1)
+- `prediction_timescale`: list of positive integers. Zero is not allowed. Default is `[1]`.
 - `regression_method`: A method from sklearn. The full list of supported methods is available from `GRN.list_regression_methods()`.
 - `eligible_regulators`: Any list of gene names
 - `predict_self`: ignored (fixed to False)
@@ -57,7 +57,7 @@ As the third backend of GGRN, we implement an autoregressive model that explicit
 
 - `matching_method`: "closest", "user", "random"
 - `do_perturbations_persist`: boolean
-- `prediction_timescale`: positive int. (Optimization becomes difficult rapidly as the value increases; we recommend setting this to 1 for now.) 
+- `prediction_timescale`: positive int. Optimization becomes difficult rapidly as the value increases. We recommend setting this to 1 for now. This implementation is unlikely to work if the value is greater than 8.
 - `regression_method`: ignored (fixed to "linear")
 - `eligible_regulators`: ignored (all genes are used)
 - `predict_self`: ignored (fixed to True)

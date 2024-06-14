@@ -679,8 +679,10 @@ class GRN:
             with open('from_to_docker/stdout.txt', 'w') as out:
                 with open('from_to_docker/err.txt', 'w') as err:
                     return_code = subprocess.call(cmd, stdout=out, stderr=err)
+            print("\n\n\n===== DOCKER STDOUT =====\n\n\n")
             with open('from_to_docker/stdout.txt', 'r') as file:
                 print(file.read())
+            print("\n\n\n===== DOCKER STDERR =====\n\n\n")
             with open('from_to_docker/err.txt', 'r') as file:
                 print(file.read())
             assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad . You may find more info in the logs generated within the container: from_to_docker/err.txt , which should also get copied to stdout."

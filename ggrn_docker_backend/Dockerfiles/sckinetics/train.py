@@ -11,7 +11,7 @@ from pereggrn_networks import LightNetwork
 
 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
-nonzero_columns=np.where(train.X.sum(axis=0) != 0)[1]
+nonzero_columns=train.X.sum(axis=0) != 0
 train = train[:,nonzero_columns]
 train.layers['norm_counts'] = train.X.copy()
 

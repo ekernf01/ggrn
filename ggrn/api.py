@@ -525,17 +525,16 @@ class GRN:
         Args:
             predictions (anndata.AnnData): Expression prior to perturbation, in the same shape as the output predictions. If 
                 None, starting state will be set to the mean of the training data control expression values.
-            predictions_metadata (pd.DataFrame):  Dataframe with columns `cell_type`, `timepoint`, `perturbation_type`, `perturbation`, and 
-                `expression_level_after_perturbation`. It will default to `predictions.obs` if predictions is provided. 
-                The meaning is "predict expression in `cell_type` at `time_point` if `perturbation` were set to 
-                `expression_level_after_perturbation`". Some details and defaults:
-                    - `perturbation` and `expression_level_after_perturbation` can contain comma-separated strings for multi-gene perturbations, for 
-                        example "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
-                    - Anything with expression_level_after_perturbation equal to np.nan will be treated as a control, no matter the name.
-                    - If timepoint or celltype or perturbation_type are missing, the default is to copy them from the top row of self.train.obs.
-                    - If the training data do not have a `cell_type` or `timepoint` column, then those *must* be omitted. Sorry; this is for backwards compatibility.
+            predictions_metadata (pd.DataFrame):  Dataframe with columns `perturbation_type`, `perturbation`, `expression_level_after_perturbation`, 
+            `cell_type` (optional), `timepoint` (optional). It will default to `predictions.obs` if predictions is provided. The meaning is "predict 
+            expression in `cell_type` at `time_point` if `perturbation` were set to `expression_level_after_perturbation`". Some details and defaults:
+                - `perturbation` and `expression_level_after_perturbation` can contain comma-separated strings for multi-gene perturbations, for 
+                    example "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
+                - Anything with expression_level_after_perturbation equal to np.nan will be treated as a control, no matter the name.
+                - If timepoint or celltype or perturbation_type are missing, the default is to copy them from the top row of self.train.obs.
+                - If the training data do not have a `cell_type` or `timepoint` column, then those *must* be omitted. Sorry; this is for backwards compatibility.
             control_subtype (str): only controls with this prefix are considered. For example, 
-                in the Nakatake data there are different types of controls labeled "emerald" and "rtTA".
+                in the Nakatake data there are different types of controls labeled "emerald" (GFP overexpression) and "rtTA" (empty overexpression vector).
             do_parallel (bool): if True, use joblib parallelization. 
             add_noise (bool): if True, return simulated data Y + e instead of predictions Y (measurement error)
                 where e is IID Gaussian with variance equal to the estimated residual variance.
@@ -610,7 +609,6 @@ class GRN:
             ad = ad.copy()
             ad.obs["prediction_timescale"] = t
             return ad
-            
         predictions = anndata.concat([
             update_timescale(predictions, t) for t in prediction_timescale
         ])
@@ -707,7 +705,7 @@ class GRN:
             # GEARS does not need expression level after perturbation, just gene names. 
             # The gene names must be in GEARS' GO graph.
             non_control = [p for p in predictions.obs["perturbation"] if all(g in self.models.pert_list for g in p.split(","))]
-            # GEARS prediction is slow enough that it helps a lot to avoid duplicating work.
+            # GEARS prediction is slow enough that we avoid duplicating work.
             non_control = list(set(non_control))
             # Input to GEARS is list of lists
             y = self.models.predict([p.split(",") for p in non_control])
@@ -722,7 +720,7 @@ class GRN:
                 cell_type_labels = None
             for current_time in range(max(prediction_timescale)):
                 print(f"Predicting time-point {current_time}")
-                # We are computing f(f(...f(X)...)) and saving whichever timepoints are in prediction_timescale. 
+                # We are computing f(f(...f(X)...)) one f() at a time and saving whichever intermediate timepoints are in prediction_timescale. 
                 # predictions is already in the right shape etc to contain all timepoints.
                 # We're going to use a view of the final timepoint as working memory, because it can be continuously 
                 # overwritten until the last iteration. By the final iteration, it is what we wanted anyway.
@@ -774,6 +772,7 @@ class GRN:
                     except AttributeError:
                         raise ValueError("Noise standard deviation could not be extracted from trained models.")
                 predictions.X[:,i] = predictions.X[:,i] + np.random.standard_normal(len(predictions.X[:,i]))*noise_sd
+        
         return predictions
 
     def extract_features(self, train: anndata.AnnData = None, in_place: bool = True, geneformer_finetune_labels: str = "louvain", n_cpu = 15):

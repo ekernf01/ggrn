@@ -200,7 +200,6 @@ def get_unique_rows(df, factors):
 
 
 for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturbation', "expression_level_after_perturbation", 'prediction_timescale', 'timepoint', 'cell_type']).iterrows():
-    print("Predicting " + current_prediction_metadata.to_csv(sep=" "))
     prediction_index = \
         (predictions.obs["cell_type"]==current_prediction_metadata["cell_type"]) & \
         (predictions.obs["timepoint"]==current_prediction_metadata["timepoint"]) & \

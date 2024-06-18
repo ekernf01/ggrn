@@ -46,18 +46,18 @@ def predict_one(tf: str, expression_level_after_perturbation: float, cell_type: 
         # Find descendents and select one at random
         next_cells = [c for c in train.obs_names if train.obs.loc[c, "matched_control"] in current_cell]
         if len(next_cells) == 0:
-            return np.nan
+            raise ValueError("No descendents found.")
         current_cell = np.random.choice(next_cells, size = 1)
     return train[current_cell, :].X
     
 def predict_many(num_cells_to_simulate: int, tf: str, expression_level_after_perturbation: float, cell_type: str, timepoint: int, num_steps: int):
     average_prediction = np.zeros(train.n_vars)
     for j in range(num_cells_to_simulate):
-        a_single_prediction = predict_one(tf, expression_level_after_perturbation, cell_type, timepoint, num_steps)
-        if any([pd.isnull(x) for x in a_single_prediction]):
-            num_cells_to_simulate -= 1
-        else:
+        try:
+            a_single_prediction = predict_one(tf, expression_level_after_perturbation, cell_type, timepoint, num_steps)
             average_prediction += a_single_prediction
+        except ValueError:
+            num_cells_to_simulate -= 1
     return average_prediction / num_cells_to_simulate
 
 print("Running simulations")

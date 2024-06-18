@@ -11,8 +11,13 @@ from pereggrn_networks import LightNetwork
 
 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
-nonzero_columns=train.X.sum(axis=0) != 0
-train = train[:,nonzero_columns]
+try:
+    train.X = train.X.toarray()
+except AttributeError:
+    pass
+is_expressed=train.X.sum(axis=0) != 0
+train_all_genes = train.copy()
+train = train[:,is_expressed]
 train.layers['norm_counts'] = train.X.copy()
 
 predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
@@ -108,23 +113,24 @@ def predict_one(tf: str, expression_level_after_perturbation: float, cell_type: 
     """
     A=model.A_[cell_type].astype(np.float64)
     A=np.nan_to_num(A)
-    X = train[(train.obs["cell_type"]==cell_type) & (train.obs["timepoint"]==timepoint), :].X.mean(0).copy().T
-    tf_index = train.var.index.get_loc(tf)
+    X = train_all_genes[(train_all_genes.obs["cell_type"]==cell_type) & (train_all_genes.obs["timepoint"]==timepoint), :].X.mean(0).copy()
+    try:
+        tf_index = train_all_genes.var.index.get_loc(tf)
+    except KeyError:
+        raise ValueError(f"TF {tf} not found in the training data.")
     for _ in range(num_steps):
         X[tf_index] = expression_level_after_perturbation
-        V = np.matrix(A).dot(np.matrix(X))
-        X = X+V
+        V = A.dot(X[is_expressed])
+        X[is_expressed] = X[is_expressed]+V.flatten()
         X[tf_index] = expression_level_after_perturbation
-    assert X.shape[0]==train.n_vars
+    assert X.shape[0]==train_all_genes.n_vars
     return X
-
-predictions_metadata["prediction_timescale"]
 
 print("Running simulations")
 predictions = anndata.AnnData(
-    X = np.zeros((predictions_metadata.shape[0], train.n_vars)),
+    X = np.zeros((predictions_metadata.shape[0], train_all_genes.n_vars)),
     obs = predictions_metadata,
-    var = train.var,
+    var = train_all_genes.var,
 )
 
 def get_unique_rows(df, factors): 
@@ -142,7 +148,7 @@ for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturb
         train_index = (train.obs["cell_type"]==current_prediction_metadata["cell_type"]) & (train.obs["timepoint"]==current_prediction_metadata["timepoint"])
         goi, level, prediction_timescale = current_prediction_metadata[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']]
         for i in np.where(prediction_index)[0]:
-            predictions[i, :].X = predict_one(goi, level, current_prediction_metadata["cell_type"], current_prediction_metadata["timepoint"], prediction_timescale)
+            predictions[i, :].X = predict_one(goi, level, current_prediction_metadata["cell_type"], current_prediction_metadata["timepoint"], prediction_timescale).flatten()
     except ValueError as e:
         predictions[prediction_index, :].X = np.nan
         print("Prediction failed. Error text: " + str(e))

@@ -12,6 +12,23 @@ train = train[:, list(set(list(test.uns["perturbed_and_measured_genes"]) + list(
 test  =  test[:, list(set(list(test.uns["perturbed_and_measured_genes"]) + list(top_genes)))]
 grn = ggrn.GRN(train,  network=pereggrn_networks.LightNetwork("celloracle_human"))
 grn.fit(
-    method = "docker____ekernf01/ggrn_docker_backend_dictys"
+    method = "docker____ekernf01/ggrn_docker_backend_dictys", 
+    # These args are suitable for fast debugging but nstep=4000 is the default for actual use
+    kwargs = {
+        'nstep': 40,
+        'npc': 0,
+        'fi_cov': None,
+        'model': 'ou',
+        'nstep_report': 1,
+        'rseed': 12345,
+        'device': 'cpu',
+        'dtype': 'float',
+        'loss': 'Trace_ELBO_site',
+        'nth': 15,
+        'varmean': 'N_0val',
+        'varstd': None,
+        'fo_weightz': None,
+        'scale_lyapunov': 1E5
+    },
 )
 ad_out = grn.predict(predictions_metadata = test.obs.loc[np.random.choice(test.obs_names, 50), ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation"]])

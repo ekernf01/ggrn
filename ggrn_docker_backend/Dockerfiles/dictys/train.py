@@ -32,6 +32,28 @@ More information should be available in the documentation for GGRN and for PEREG
 """
 )
 
+defaults = {
+    'lr': 0.01,
+    'lrd': 0.999,
+    'nstep': 4000,
+    'npc': 0,
+    'fi_cov': None,
+    'model': 'ou',
+    'nstep_report': 100,
+    'rseed': 12345,
+    'device': 'cpu',
+    'dtype': 'float',
+    'loss': 'Trace_ELBO_site',
+    'nth': 15,
+    'varmean': 'N_0val',
+    'varstd': None,
+    'fo_weightz': None,
+    'scale_lyapunov': 1E5
+}
+for k in defaults:
+    if k not in kwargs:
+        kwargs[k] = defaults[k]
+
 # We apply dictys based on the full tutorial at https://github.com/pinellolab/dictys/blob/master/doc/tutorials/full-multiome/notebooks/3-static-inference.ipynb
 # 
 # The code to read expression and network structure looks like this. 
@@ -45,7 +67,9 @@ print("Converting inputs to dictys' preferred format.", flush=True)
 # Intersect the network with the expression data
 network_features = set(network.get_all_regulators()).union(set(network.get_all_one_field("target")))
 common_features = list(train.var.index.intersection(network_features))
+common_features_int = [train.var.index.get_loc(f) for f in common_features]
 network = network.get_all().query("regulator in @common_features and target in @common_features")
+train_all_features = train.copy()
 train = train[:, common_features]
 # Convert to dictys' preferred format via celloracle's preferred format
 network = pivotNetworkLongToWide(network) 
@@ -54,7 +78,7 @@ del network["gene_short_name"]
 del network["peak_id"]
 # Input network must be square. Make it square by zero-padding (specifying no targets for any non-TF).
 network_non_regulators = list(set(train.var.index) - set(network.columns))
-network.loc[:,network_non_regulators] = 0 # This causes a rank-deficiency error in cholesky decomposition. Replacing with random values (probably linearly independent??) solves it.
+network.loc[:,network_non_regulators] = 0
 # Remove self loops. Without this, we trigger an assertion error in dictys reconstruct line 790, which is documented behavior.
 for g in network.columns:
     network.loc[g,g]=0
@@ -67,7 +91,6 @@ except AttributeError:
 
 # Dictys expects one TF per row and CO uses one per column. We transpose the network to match the expected format.
 network.T.to_csv("mask.tsv", sep="\t")
-
 print("Running network reconstruction.", flush=True)
 dictys.network.reconstruct(
     fi_exp="exp.tsv",
@@ -77,7 +100,22 @@ dictys.network.reconstruct(
     fo_covfactor="covfactor.tsv",
     fo_loss="loss.tsv",
     fo_stats="stats.tsv", 
-    npc = 0
+    lr = kwargs['lr'],
+    lrd = kwargs['lrd'],
+    nstep = kwargs['nstep'],
+    npc = kwargs['npc'],
+    fi_cov = kwargs['fi_cov'],
+    model = kwargs['model'],
+    nstep_report = kwargs['nstep_report'],
+    rseed = kwargs['rseed'],
+    device = kwargs['device'],
+    dtype = kwargs['dtype'],
+    loss = kwargs['loss'],
+    nth = kwargs['nth'],
+    varmean = kwargs['varmean'],
+    varstd = kwargs['varstd'],
+    fo_weightz = kwargs['fo_weightz'],
+    scale_lyapunov = kwargs['scale_lyapunov']
 )
 #   fi_exp                Path of input tsv file of expression matrix.
 #   fi_mask               Path of input tsv file of mask matrix indicating which
@@ -124,7 +162,7 @@ dictys.network.indirect(
 #                         effect edge weight matrix
 
 indirect_effects = pd.read_csv("iweight.tsv", sep="\t", index_col=0)
-def predict_one(perturbed_gene: str, level: float, cell_type: str, timepoint: int):
+def predict_expression(perturbed_gene: str, level: float, cell_type: str, timepoint: int):
     """Predict log-scale post-perturbation expression
 
     Args:
@@ -136,22 +174,30 @@ def predict_one(perturbed_gene: str, level: float, cell_type: str, timepoint: in
     Returns:
         np.array: the predicted log-scale expression of all genes
     """
-    train_index = (train.obs["cell_type"]==current_prediction_metadata["cell_type"]) & (train.obs["timepoint"]==current_prediction_metadata["timepoint"])
-    control_expression = train[train_index, :].X.mean()
-    change_in_perturbed_gene = level - control_expression[perturbed_gene]
-    return indirect_effects[perturbed_gene, :]*change_in_perturbed_gene  # Index name is "regulator" so we want to grab a row, not a column
+    is_baseline = (
+        (train.obs["cell_type"]==current_prediction_metadata["cell_type"]) &
+        (train.obs["timepoint"]==current_prediction_metadata["timepoint"]) &
+        train.obs["is_control"]
+    )
+    if perturbed_gene in train.var.index:
+        control_expression = train_all_features[is_baseline, :].X.mean(axis = 0)
+    change_in_perturbed_gene = level - train[is_baseline, perturbed_gene].X.mean()
+    logfc = indirect_effects.loc[perturbed_gene, :]*change_in_perturbed_gene  # Index name is "regulator" so we want to grab a row, not a column
+    control_expression[:, common_features_int] = control_expression[:, common_features_int] + logfc.values
+    return control_expression
 
-predictions_metadata["prediction_timescale"]
+
 
 print("Running simulations")
 predictions = anndata.AnnData(
-    X = np.zeros((predictions_metadata.shape[0], train.n_vars)),
+    X = np.zeros((predictions_metadata.shape[0], train_all_features.n_vars)),
     obs = predictions_metadata,
-    var = train.var,
+    var = train_all_features.var,
 )
 
 def get_unique_rows(df, factors): 
     return df[factors].groupby(factors).mean().reset_index()
+
 
 for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturbation', "expression_level_after_perturbation", 'prediction_timescale', 'timepoint', 'cell_type']).iterrows():
     print("Predicting " + current_prediction_metadata.to_csv(sep=" "))
@@ -161,14 +207,15 @@ for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturb
         (predictions.obs["perturbation"]==current_prediction_metadata["perturbation"]) & \
         (predictions.obs["expression_level_after_perturbation"]==current_prediction_metadata["expression_level_after_perturbation"]) & \
         (predictions.obs["prediction_timescale"]==current_prediction_metadata["prediction_timescale"]) 
-    try:
-        perturbed_gene, level, prediction_timescale = current_prediction_metadata[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']]
-        for i in np.where(prediction_index)[0]:
-            predictions[i, :].X = predict_one(perturbed_gene, level, current_prediction_metadata["cell_type"], current_prediction_metadata["timepoint"], prediction_timescale)
-    except ValueError as e:
-        predictions[prediction_index, :].X = np.nan
-        print("Prediction failed. Error text: " + str(e))
-
+    x = predict_expression(
+        perturbed_gene=current_prediction_metadata["perturbation"], 
+        level = current_prediction_metadata["expression_level_after_perturbation"], 
+        cell_type = current_prediction_metadata["cell_type"],
+        timepoint = current_prediction_metadata["timepoint"]
+    )
+    for i in np.where(prediction_index)[0]:
+        predictions[i, :].X = x
     
+
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

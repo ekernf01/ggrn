@@ -13,3 +13,5 @@ A Docker container used by GGRN to interface with dictys. Here is how the standa
 - `network`: a networks is passed to dictys in lieu of dictys' bespoke motif footprinting pipeline. 
 - `network_prior`: fixed to "restrictive"
 - `cell_type_sharing_strategy`: fixed to "distinct"
+
+If a dict `kwargs` is provided via `ggrn.fit`, its contents will be passed to `dictys.network.reconstruct`. This includes the number of steps and the device (cpu vs gpu), BUT I don't think the installation will work with a GPU yet -- see the Dictys docs for instructions.

@@ -74,7 +74,6 @@ def get_unique_rows(df, factors):
     return df[factors].groupby(factors).mean().reset_index()
 
 for _, gene_level_steps in get_unique_rows(predictions.obs, ['perturbation', "expression_level_after_perturbation", 'prediction_timescale']).iterrows(): 
-    print("Predicting " + gene_level_steps["perturbation"])
     try:
         oracle.simulate_shift(
             perturb_condition={
@@ -91,7 +90,6 @@ for _, gene_level_steps in get_unique_rows(predictions.obs, ['perturbation', "ex
                 (predictions.obs["expression_level_after_perturbation"]==gene_level_steps["expression_level_after_perturbation"]) & \
                 (predictions.obs["prediction_timescale"]==gene_level_steps["prediction_timescale"]) 
             train_index = (oracle.adata.obs["cell_type"]==starting_state["cell_type"]) & (oracle.adata.obs["timepoint"]==starting_state["timepoint"])
-            print(predictions.obs.loc[prediction_index, :])
             for i in np.where(prediction_index)[0]:
                 predictions[i, :].X = oracle.adata[train_index,:].layers['simulated_count'].squeeze().mean(0)
     except ValueError as e:

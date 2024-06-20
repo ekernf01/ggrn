@@ -55,19 +55,13 @@ for k in defaults:
         kwargs[k] = defaults[k]
 
 # We apply dictys based on the full tutorial at https://github.com/pinellolab/dictys/blob/master/doc/tutorials/full-multiome/notebooks/3-static-inference.ipynb
-# 
-# The code to read expression and network structure looks like this. 
-# dt0=pd.read_csv(fi_exp,header=0,index_col=0,sep='\t')
-# mask=pd.read_csv(fi_mask,header=0,index_col=0,sep='\t')
-# assert len(set(mask.index)-set(dt0.index))==0
-# assert len(set(mask.columns)-set(dt0.index))==0
-#
+
 
 print("Converting inputs to dictys' preferred format.", flush=True)
 # Intersect the network with the expression data
 network_features = set(network.get_all_regulators()).union(set(network.get_all_one_field("target")))
 common_features = list(train.var.index.intersection(network_features))
-common_features_int = [train.var.index.get_loc(f) for f in common_features]
+common_features_int = np.array([train.var.index.get_loc(f) for f in common_features])
 network = network.get_all().query("regulator in @common_features and target in @common_features")
 train_all_features = train.copy()
 train = train[:, common_features]
@@ -172,18 +166,22 @@ def predict_expression(perturbed_gene: str, level: float, cell_type: str, timepo
         timepoint (int): starting timepoint to perturb
 
     Returns:
-        np.array: the predicted log-scale expression of all genes
+        np.array: the predicted log-scale expression of all genes. For genes not in the dictys model, returns control expression.
     """
     is_baseline = (
         (train.obs["cell_type"]==current_prediction_metadata["cell_type"]) &
         (train.obs["timepoint"]==current_prediction_metadata["timepoint"]) &
         train.obs["is_control"]
     )
+    control_expression = train_all_features[is_baseline, :].X.mean(axis = 0)
+    try: 
+        control_expression = control_expression.A1
+    except AttributeError:
+        pass
     if perturbed_gene in train.var.index:
-        control_expression = train_all_features[is_baseline, :].X.mean(axis = 0)
-    change_in_perturbed_gene = level - train[is_baseline, perturbed_gene].X.mean()
+        change_in_perturbed_gene = level - train[is_baseline, perturbed_gene].X.mean()
     logfc = indirect_effects.loc[perturbed_gene, :]*change_in_perturbed_gene  # Index name is "regulator" so we want to grab a row, not a column
-    control_expression[:, common_features_int] = control_expression[:, common_features_int] + logfc.values
+    control_expression[common_features_int] = control_expression[common_features_int] + logfc.values
     return control_expression
 
 

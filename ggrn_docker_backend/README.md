@@ -1,8 +1,8 @@
-GGRN can interface with any GRN software that can run in a Docker container. You need to make a Docker image and a program that will run in it. The folder `from_to_docker` will be "mounted" to the container, allowing files to pass in and out. It will appear on the host machine in the working directory where GGRN is run and it will appear in the Docker container at the root of the filesystem. 
+GGRN can interface with any GRN software that can run in a Docker or Singularity container. You need to make a Docker image and a program that will run in it. The folder `from_to_docker` will be "mounted" to the container, allowing files to pass in and out. `from_to_docker` will appear on the host machine in the working directory where GGRN is run, and it will appear in the Docker container at the root of the filesystem. Once the container finishes running, it will be deleted, but outputs in `from_to_docker` will persist; GGRN will read these and return them, allowing the user to operate entirely within Python.
 
 ### Prediction program
 
-It must:
+This runs inside the container. It must:
 
 - read training data from `from_to_docker/train.h5ad`. You can expect this training data to pass the checks in `ggrn.validate_training_data(train)`.
 - read perturbations to predict in `from_to_docker/predictions_metadata.csv`. You can expect a table containing the following columns: `['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']`. **Please return one prediction per row in this table.** For multi-gene perturbations, you'll find quoted comma-separated lists as strings, and yes, I'm very sorry about this. An example: "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
@@ -57,11 +57,13 @@ predictions = grn.predict([("POU5F1", 0), ("NANOG", 0)])
 predictions
 ```
 
-### Advanced: passing args to docker
+To run the same backend via Singularity, use `method ="singularity__--cpus='.5'__ekernf01/ggrn_docker_backend_template"`.
 
-You will specify `method="docker__myargs__myimage"` when you call `GRN.fit`. We split on double-underscore, and the stuff in the middle, `"myargs"`, is provided to Docker as arguments, as in `docker run myargs <other relevant stuff> myimage`. Some relevant technicalities:
+### Advanced: passing args to docker or singularity
+
+You will specify `method="docker__myargs__myimage"` when you call `GRN.fit`. We split on double-underscore, and the stuff in the middle, `"myargs"`, is provided to Docker or singularity as arguments, as in `docker run myargs <other relevant stuff> myimage`. Some relevant technicalities:
 
 - We split on spaces and provide it as a list, like `subprocess.call([docker] + myargs + ...)`. For example, to limit the cpu usage, you can use `method="docker__--cpus='.5'__myimage"`, or to use a gpu, you can use `method="docker__--gpus all ubuntu nvidia-smi__myimage"`. 
-- Certain options are already used. We always pass in `--rm` to remove the container when it finishes, and we always use `--mount` to share files as described above. Do not use these args. We have not tested whether there are things you could provide that would interfere with this, so you may need some knowledge of Docker to avoid problems. Initially, we recommend using no Docker args, like `method="docker____myimage"`.
+- Certain options are already used. With Docker, we always pass in `--rm` to remove the container when it finishes, and we always use `--mount` to share files as described above. With singularity, we use `--bind` to share files. Do not use these args. We have not tested whether there are things you could provide that would interfere with this, so we recommend using no Docker args, like `method="docker____myimage"`. Otherwise you may need some knowledge of Docker or singularity to troubleshoot. 
 
 

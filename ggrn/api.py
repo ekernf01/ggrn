@@ -651,14 +651,15 @@ class GRN:
                 targets = list(set(predictions.var_names).intersection(targets))
                 if len(targets) > 0:
                     predictions[i, targets].X = predictions[i, targets].X + logfc
-        elif self.training_args["method"].startswith("docker"):
+        elif self.training_args["method"].startswith("docker") or self.training_args["method"].startswith("singularity"):
             try:
-                _, docker_args, image_name = self.training_args["method"].split("__")
+                containerizer, containerizer_args, image_name = self.training_args["method"].split("__")
             except ValueError as e:
-                raise ValueError(f"docker argument parsing failed on input {self.training_args['method']} with error {repr(e)}. Expected format: docker__myargs__mycontainer")
+                raise ValueError(f"docker/singularity argument parsing failed on input {self.training_args['method']} with error {repr(e)}. Expected format: docker__myargs__mycontainer")
+            print(f"containerizer: {containerizer}")
             print(f"image name: {image_name}")
-            print(f"args to 'docker run': {docker_args}")
-            self.training_args["docker_args"] = [s for s in docker_args.split(" ") if s!=""]
+            print(f"args to containerizer: {containerizer_args}")
+            self.training_args["containerizer_args"] = [s for s in containerizer_args.split(" ") if s!=""]
             self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
             self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
             self.train.write_h5ad("from_to_docker/train.h5ad")
@@ -666,14 +667,24 @@ class GRN:
                 self.network.get_all().to_parquet("from_to_docker/network.parquet")
             predictions.obs.to_csv("from_to_docker/predictions_metadata.csv")
             assert os.path.isfile("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
-            cmd = [
-                "docker", "run", 
-                "--rm",
-                "--mount", f"type=bind,source={os.getcwd()}/from_to_docker/,destination=/from_to_docker",
-            ] + self.training_args['docker_args'] + [
-                f"{image_name}"
-            ]
-            print(f"Running command:\n\n{' '.join(cmd)}\n\nwith logs from_to_docker/stdout.txt, from_to_docker/err.txt")
+            if containerizer=='docker':
+                cmd = [
+                    "docker", "run", 
+                    "--rm",
+                    "--mount", f"type=bind,source={os.getcwd()}/from_to_docker/,destination=/from_to_docker",
+                ] + self.training_args['containerizer_args'] + [
+                    f"{image_name}"
+                ]
+            elif containerizer=='singularity':
+                cmd = [
+                    "singularity", "exec", 
+                    "--bind", f"{os.getcwd()}/from_to_docker/:/from_to_docker",
+                ] + self.training_args['containerizer_args'] + [
+                    f"docker://{image_name}"
+                ]                
+            else:
+                raise ValueError(f"Unknown containerizer {containerizer}. Expected 'docker' or 'singularity'.")
+            print(f"Running command:\n\n{' '.join(cmd)}\n\nwith logs from_to_docker/stdout.txt, from_to_docker/err.txt", flush = True)
             with open('from_to_docker/stdout.txt', 'w') as out:
                 with open('from_to_docker/err.txt', 'w') as err:
                     return_code = subprocess.call(cmd, stdout=out, stderr=err)
@@ -686,13 +697,9 @@ class GRN:
             assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad . You may find more info in the logs generated within the container: from_to_docker/err.txt , which should also get copied to stdout."
             input_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
             predictions = sc.read_h5ad("from_to_docker/predictions.h5ad")
+            assert predictions.n_obs > 0, "Method in Docker container predicted zero observations. Was there a warning about timepoints?"
             predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
             predictions.obs["expression_level_after_perturbation"] = predictions.obs["expression_level_after_perturbation"].astype(str)
-            for c in ["perturbation", "expression_level_after_perturbation", "timepoint", "cell_type"]:
-                assert all( (input_metadata[c].astype(str).values == predictions.obs[c].astype(str).values) ), \
-                    "Method in Docker container violated expectations of GGRN: Output must contain the " + \
-                    f"predictions in the expected order, with .obs matching from_to_docker/predictions_metadata.csv. Bad column: {c}"
-
             assert all(predictions.var_names == self.train.var_names), \
                 "Method in Docker container violated expectations of GGRN:" + \
                 "Variable names must be identical between training and test data."

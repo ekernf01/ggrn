@@ -5,11 +5,15 @@ This package is our implementation of the [grammar of gene regulatory networks](
 
 The implementation uses several separate backends. With apologies, the `method` arg of the `grn.fit` is currently used to specify both the backend AND, within backend #1, it is used to specify the regression method. In the future we hope to replace it with two separate args, `backend` and `regression_method`, but this may break backwards compatibility. Where `regression_method` is mentioned below, it currently corresponds to the `method` arg of `GRN.fit`.
 
+#### Arbitrary backends via Docker and Singularity:
+
+You can add your own backend using Docker: consult `ggrn_docker_backend/README.md` in this repo.
+
 #### Backend 1: steady state 
 
 The initial implementation offers several matching methods; flexible regression; simple feature extraction or feature extraction via geneformer; rudimentary use of prior network structure; rudimentary cell type specificity; and predictions after just one step forward. It has no scheme for matching treatment samples to specific controls and no low-dimensional structure. It accepts the following inputs.
 
-- `matching_method`: "steady_state", "user", "closest", or "random"
+- `matching_method`: "steady_state", "user", "closest", "optimal_transport", or "random"
 - `do_perturbations_persist`: ignored (fixed to True)
 - `prediction_timescale`: list of positive integers. Zero is not allowed. Default is `[1]`.
 - `regression_method`: A method from sklearn. The full list of supported methods is available from `GRN.list_regression_methods()`.
@@ -55,7 +59,7 @@ For more information on our pip-installable interface to DCD-FG, see [here](http
 
 As the third backend of GGRN, we implement an autoregressive model that explicitly uses the passage of time and does not make steady-state assumptions. This offers the following features.
 
-- `matching_method`: "closest", "user", "random"
+- `matching_method`: "closest", "user", "random", "optimal_transport"
 - `do_perturbations_persist`: boolean
 - `prediction_timescale`: positive int. Optimization becomes difficult rapidly as the value increases. We recommend setting this to 1 for now. This implementation is unlikely to work if the value is greater than 8.
 - `regression_method`: ignored (fixed to "linear")
@@ -85,6 +89,3 @@ Some technical notes:
 
 We offer another simple option that is not well described by GGRN. This backend is specified by setting `regression_method` to `"regulon"`. This backend requires a network structure, but no training data are needed. In this backend, the targets in the provided network will exactly follow the fold change of their regulators. For example, whenever log-scale FOXA1 expression goes up by 0.5 due to overexpression, FOXA1's targets in the provided network will go up by 0.5 also. 
 
-#### Arbitrary backends via Docker:
-
-You can add your own backend using Docker: consult `ggrn_docker_backend/README.md` in this repo.

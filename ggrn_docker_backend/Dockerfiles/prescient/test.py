@@ -3,6 +3,8 @@ import pereggrn_perturbations
 import ggrn.api as ggrn
 import shutil
 import numpy as np
+import pandas as pd
+
 pereggrn_perturbations.set_data_path("../../../../perturbation_data/perturbations") # you may need to change this to the path where the perturbations are stored on your computer.
 train = pereggrn_perturbations.load_perturbation("definitive_endoderm", is_timeseries=True)
 test = pereggrn_perturbations.load_perturbation("definitive_endoderm", is_timeseries=False)
@@ -18,4 +20,11 @@ grn.fit(
         "save": 3, # Suggest you set this to same value as train_epochs
     },
 )
-ad_out = grn.predict(predictions_metadata = test.obs.loc[np.random.choice(test.obs_names, 50), ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation"]])
+# This is different from the test.py for most Docker backends, because does_simulation_progress is set to True.  
+predictions_metadata = pd.merge(
+    test.obs.loc[np.random.choice(test.obs_names, 50), ['perturbation', "expression_level_after_perturbation", "perturbation_type"]],
+    train.obs[['cell_type', "timepoint"]].drop_duplicates(),
+    how = "cross"
+)
+predictions_metadata = predictions_metadata.loc[np.random.choice(predictions_metadata.index, 25), :]
+ad_out = grn.predict( predictions_metadata = predictions_metadata, prediction_timescale = [1,2,3,4] )

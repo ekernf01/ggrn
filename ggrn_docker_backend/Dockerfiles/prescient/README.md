@@ -13,3 +13,5 @@ A Docker container to let GGRN interface to PRESCIENT. Here is how the standard 
 - `network`: ignored
 - `network_prior`: fixed to "ignore"
 - `cell_type_sharing_strategy`: ignored (fixed to "identical")
+
+There is a long note in a comment in `train.py` source code about PRESCIENT timescales, which are kinda messy. Please read it lest you predict the wrong timepoints. 

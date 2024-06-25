@@ -22,6 +22,7 @@ def show_tree(dir_path, indent=''):
 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
 predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
+assert predictions_metadata.shape[0] > 0, "predictions_metadata is empty."
 for c in ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']:
     assert c in predictions_metadata.columns, f"For the ggrn prescient backend, predictions_metadata.columns is required to contain {c}."
 
@@ -103,66 +104,83 @@ scaler.fit_transform(original_expression)
 
 # Make predictions
 #
-# Let's talk about prescient timescales.
+# Let's talk about prescient timescales. Internally, we use 3 (three) different timescales.
 # 
-# First, before we talk about the model, a basic thing to specify is the starting cell state, via  "--celltype_subset" and "--tp_subset".
+# Input timepoints are transformed to be consecutive starting from 0 during process_data (flag --fix_non_consecutive).
+# So if training samples are labeled 0, 2, 12, 24, we would re-label them 0,1,2,3,4. 
+# So now we have two timescales, "original" and "consecutive".
 # 
-# Second, input timepoints are transformed to be consecutive starting from 0 during process_data (flag --fix_non_consecutive).
-# So if training samples are labeled 0, 2, 12, 24, and I want a prediction at time 18, I would proceed as follows. 
-# 12 is labeled as 2 and 24 is labeled as 3.
-# I want predictions at 18, so that would be about a 2.5 during process_data. (I currently do piecewise linear interpolation.)
-# 
-# Third, it's a differential equation method. It's solved via time discretization, but still the natural scale to run the model on is
-# a finer discretization of the space than the original data.
+# Next, it's a differential equation method. It's solved via time discretization. 
 # The [prescient docs](https://cgs.csail.mit.edu/prescient/documentation/) say there's a default dt of 0.1, so ten steps per time-point.
-# So if I want expression at time 2.5, I should feed 25 to num_steps below.
+# So if I want expression at time 2, I should feed 20 to prescient's num_steps arg.
+# So now we have three timescales, "original" and "consecutive" and "steps". 
 # 
-# Third, as of 2024 March 13, interpolation with PRESCIENT is also tricky, and I have not read the details yet. https://github.com/gifford-lab/prescient/issues/3
+# Finally: as of 2024 March 13, interpolation with PRESCIENT is also tricky, and I have not read the details yet. https://github.com/gifford-lab/prescient/issues/3
+# 
+# Guidance to the user: 
+# 
+# - the "timepoint" in the `obs` of `train.h5ad` and in `predictions_metadata` should be on the original scale e.g. 0, 2, 12, 24. 
+# - `prediction_timescale` in `predictions_metadata` should be on the "consecutive" scale, so a 2 would bring you from 0 to 12 or from 2 to 24.
 
 tps = train.obs["timepoint"]
-time_points = {
+time_scales = {
     "train_original": np.sort(np.unique(tps)), 
     "train_consecutive": np.arange(0, len(np.unique(tps))),
-    "predict_original": predictions_metadata["prediction_timescale"].unique(),
 }
-assert max(time_points["predict_original"]) <= max(time_points["train_original"]), "GGRN's PRESCIENT backend cannot currently extrapolate outside the original time-window."
-assert min(time_points["predict_original"]) >= min(time_points["train_original"]), "GGRN's PRESCIENT backend cannot currently extrapolate outside the original time-window."
-time_points["predict_consecutive"] = np.interp(time_points["predict_original"], time_points["train_original"], time_points["train_consecutive"])
-time_points["predict_steps"] = [int(round(i/kwargs["train_dt"])) for i in time_points["predict_consecutive"]]
-time_points["converter"] = {time_points["predict_original"][i]:time_points["predict_steps"][i] for i in range(len(time_points["predict_original"]))}
+time_scales["train_steps"] = [int(round(i/kwargs["train_dt"])) for i in time_scales["train_consecutive"]]
 print("Timescale: ")
-print(time_points)
-predictions_metadata["predict_steps"] = [time_points["converter"][t] for t in predictions_metadata["prediction_timescale"]]
+print(time_scales)
+time_scales["convert_original_to_consecutive"] = {time_scales["train_original"   ][i]:time_scales["train_consecutive"][i] for i in range(len(time_scales["train_original"]))}
+time_scales["convert_consecutive_to_steps"]    = {time_scales["train_consecutive"][i]:time_scales["train_steps"      ][i] for i in range(len(time_scales["train_original"]))}
+time_scales["convert_consecutive_to_original"] = {time_scales["train_consecutive"][i]:time_scales["train_original"   ][i] for i in range(len(time_scales["train_original"]))}
+time_scales["convert_steps_to_consecutive"]    = {time_scales["train_steps"      ][i]:time_scales["train_consecutive"][i] for i in range(len(time_scales["train_original"]))}
+# Remove any trajectory running off the end. 
+predictions_metadata["timepoint_original"] = predictions_metadata["timepoint"].copy()
+predictions_metadata["timepoint_consecutive"] = predictions_metadata["timepoint_original"].map(time_scales["convert_original_to_consecutive"])
+predictions_metadata["takedown_timepoint_consecutive"] = predictions_metadata["timepoint_consecutive"] + predictions_metadata["prediction_timescale"]
+final_timepoint_consecutive = time_scales['train_consecutive'].max()
+if any( predictions_metadata["takedown_timepoint_consecutive"] > final_timepoint_consecutive):
+    print(f"WARNING: some requested predictions are beyond the end of the training data (time point {final_timepoint_consecutive}). These will be removed.")
+    print("requested time points (timepoint, num_observations):")
+    print(predictions_metadata["takedown_timepoint_consecutive"].value_counts())
+    predictions_metadata = predictions_metadata.query("takedown_timepoint_consecutive <= @final_timepoint_consecutive")
+    print("time points that will be predicted (timepoint, num_observations):")
+    print(predictions_metadata["takedown_timepoint_consecutive"].value_counts())
+    
+# Direct input to PRESCIENT: consecutive-ized timepoints and number of steps
+predictions_metadata["timepoint"] = predictions_metadata["timepoint_consecutive"].copy()
+predictions_metadata["prediction_timescale_steps"] = [time_scales["convert_consecutive_to_steps"][t]    for t in predictions_metadata["prediction_timescale"]]
 
 print("Running simulations", flush = True)
-# Note the timepoint metadata is on the original scale e.g. 0, 2, 12, 24.
-# The predict_steps is on prescient's internal scale, accounting for the value of dt, e.g. 0, 10, 20, 30 if dt is 0.1.
 predictions = anndata.AnnData(
     X = np.zeros((predictions_metadata.shape[0], train.n_vars)),
     obs = predictions_metadata,
     var = train.var,
 )
 
-def get_unique_rows(df, factors): 
-    return df[factors].groupby(factors).mean().reset_index()
-
-for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturbation', "expression_level_after_perturbation", 'predict_steps', 'timepoint', 'cell_type']).iterrows():
-    print("Predicting " + current_prediction_metadata.to_csv(sep=" "))
+for _, current_prediction_metadata in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale_steps', 'timepoint', 'cell_type']].drop_duplicates().iterrows():
     prediction_index = \
-        (predictions.obs["cell_type"]==current_prediction_metadata["cell_type"]) & \
-        (predictions.obs["timepoint"]==current_prediction_metadata["timepoint"]) & \
-        (predictions.obs["perturbation"]==current_prediction_metadata["perturbation"]) & \
+        (predictions.obs["cell_type"]                          ==current_prediction_metadata["cell_type"]) & \
+        (predictions.obs["timepoint"]                          ==current_prediction_metadata["timepoint"]) & \
+        (predictions.obs["perturbation"]                       ==current_prediction_metadata["perturbation"]) & \
         (predictions.obs["expression_level_after_perturbation"]==current_prediction_metadata["expression_level_after_perturbation"]) & \
-        (predictions.obs["predict_steps"]==current_prediction_metadata["predict_steps"]) 
+        (predictions.obs["prediction_timescale_steps"]         ==current_prediction_metadata["prediction_timescale_steps"]) 
+    assert prediction_index.sum() >= 1, "Prediction metadata are out of sync with themselves. Please report this bug."
     try:
         train_index = (train.obs["cell_type"]==current_prediction_metadata["cell_type"]) & (train.obs["timepoint"]==current_prediction_metadata["timepoint"])
-        goi, level, predict_steps = current_prediction_metadata[['perturbation', "expression_level_after_perturbation", 'predict_steps']]
+        assert train_index.sum() >= 1, "No training samples have the specified combination of cell_type and timepoint."
+        goi, level, predict_steps = current_prediction_metadata[['perturbation', "expression_level_after_perturbation", 'prediction_timescale_steps']]
         assert "," not in goi, "PRESCIENT and GGRN can each handle multi-gene perturbations, but the interface between them currently cannot. Sorry."
-        control = train[train_index, goi].X.mean()
-        if level < control:
-            z = -5
-        if level > control:
-            z = 5
+        # handle samples labeled e.g. "control" or "scramble"
+        if goi in train.var_names:
+            control = train[train_index, goi].X.mean()
+            if level < control:
+                z = -5
+            if level > control:
+                z = 5
+        else:
+            z = 0
+            goi = train.var_names[0]
         subprocess.call([
             "prescient", "perturbation_analysis", 
             "-i", "traindata.pt", 
@@ -171,7 +189,7 @@ for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturb
             "--epoch", f"{int(kwargs['train_epochs']):06}",
             "--num_pcs",  str(ggrn_args["low_dimensional_value"]),
             "--model_path", "prescient_trained/kegg-growth-softplus_1_500-1e-06", 
-            "--num_steps", str(max(time_points["predict_steps"])),
+            "--num_steps", str(predict_steps),
             "--num_cells", str(kwargs["num_cells_to_simulate"]),
             "--num_sims", "1",
             "--celltype_subset", str(current_prediction_metadata["cell_type"]), 
@@ -184,21 +202,24 @@ for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturb
                             "_train.epoch_" f"{int(kwargs['train_epochs']):06}"
                             "_num.sims_" "1"
                             "_num.cells_" f"{kwargs['num_cells_to_simulate']}"
-                            "_num.steps_" f"{current_prediction_metadata['predict_steps']}" 
+                            "_num.steps_" f"{current_prediction_metadata['prediction_timescale_steps']}" 
                             "_subsets_" f"{str(current_prediction_metadata['timepoint'])}_{current_prediction_metadata['cell_type']}"
                             "_perturb_simulation.pt"
                             )
         print(result["perturbed_sim"][0].shape)
-        pca_predicted_embeddings = result["perturbed_sim"][0][time_points["predict_steps"],:,:].mean(axis=(0,1), keepdims = False).reshape(1, -1)
+        # Average multiple trajectories to get a single trajectory
+        pca_predicted_embeddings = result["perturbed_sim"][0][0:predict_steps,:,:].mean(axis=(0,1), keepdims = False).reshape(1, -1)
         print(pca_predicted_embeddings.shape)
         # Now we un-do all of PRESCIENT's preprocessing in order to return data on the scale of the training data input. 
         scaled_expression = pca_model.inverse_transform(pca_predicted_embeddings)
         for i in np.where(prediction_index)[0]:
             predictions[i, :].X = scaler.inverse_transform(scaled_expression) 
-    except ValueError as e:
+    except Exception as e:
         predictions[prediction_index, :].X = np.nan
         print("Prediction failed. Error text: " + str(e))
+        print("Metadata: " + current_prediction_metadata.to_csv(sep=" "))
 
-    
+# Convert back to original timepoint labels before returning the data
+predictions.obs["timepoint"] = [time_scales["convert_consecutive_to_original"][t] for t in predictions.obs["timepoint"]]
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

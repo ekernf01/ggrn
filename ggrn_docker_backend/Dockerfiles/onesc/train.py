@@ -72,13 +72,10 @@ predictions = anndata.AnnData(
     obs = predictions_metadata,
     var = adata.var,
 )
-def get_unique_rows(df, factors): 
-    return df[factors].groupby(factors).mean().reset_index()
-
-for _, starting_state in get_unique_rows(predictions.obs, ['timepoint', 'type_and_time']).iterrows(): 
+for _, starting_state in predictions.obs[['timepoint', 'type_and_time']].drop_duplicates().iterrows():
     initial_state = adata[adata.obs['type_and_time']==starting_state['type_and_time'], :].copy()
     xstates = onesc.define_states_adata(initial_state, min_mean = 0.05, min_percent_cells = 0.20)
-    for _, gene_level_steps in get_unique_rows(predictions.obs, ['perturbation', "expression_level_after_perturbation", 'prediction_timescale']).iterrows(): 
+    for _, gene_level_steps in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']].drop_duplicates().iterrows(): 
         goi = gene_level_steps["perturbation"]
         netname = 'onesc_network'
         netsim = onesc.network_structure()

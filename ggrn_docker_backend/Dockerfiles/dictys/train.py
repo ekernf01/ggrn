@@ -173,6 +173,8 @@ def predict_expression(perturbed_gene: str, level: float, cell_type: str, timepo
         (train.obs["timepoint"]==current_prediction_metadata["timepoint"]) &
         train.obs["is_control"]
     )
+    if not any(is_baseline):
+        raise ValueError(f"No controls were found at time {current_prediction_metadata['timepoint']} for celltype {current_prediction_metadata['cell_type']}. Cannot predict perturbed expression.")
     control_expression = train_all_features[is_baseline, :].X.mean(axis = 0)
     try: 
         control_expression = control_expression.A1
@@ -193,11 +195,8 @@ predictions = anndata.AnnData(
     var = train_all_features.var,
 )
 
-def get_unique_rows(df, factors): 
-    return df[factors].groupby(factors).mean().reset_index()
 
-
-for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturbation', "expression_level_after_perturbation", 'prediction_timescale', 'timepoint', 'cell_type']).iterrows():
+for _, current_prediction_metadata in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale', 'timepoint', 'cell_type']].drop_duplicates().iterrows():
     prediction_index = \
         (predictions.obs["cell_type"]==current_prediction_metadata["cell_type"]) & \
         (predictions.obs["timepoint"]==current_prediction_metadata["timepoint"]) & \

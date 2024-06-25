@@ -70,10 +70,7 @@ predictions = anndata.AnnData(
     var = train.var,
 )
 
-def get_unique_rows(df, factors): 
-    return df[factors].groupby(factors).mean().reset_index()
-
-for _, gene_level_steps in get_unique_rows(predictions.obs, ['perturbation', "expression_level_after_perturbation", 'prediction_timescale']).iterrows(): 
+for _, gene_level_steps in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']].drop_duplicates().iterrows(): 
     try:
         oracle.simulate_shift(
             perturb_condition={
@@ -82,7 +79,7 @@ for _, gene_level_steps in get_unique_rows(predictions.obs, ['perturbation', "ex
             n_propagation=gene_level_steps["prediction_timescale"], 
             ignore_warning = True
         )
-        for _, starting_state in get_unique_rows(predictions.obs, ['timepoint', 'cell_type']).iterrows(): 
+        for _, starting_state in predictions.obs[['timepoint', 'cell_type']].drop_duplicates().iterrows(): 
             prediction_index = \
                 (predictions.obs["cell_type"]==starting_state["cell_type"]) & \
                 (predictions.obs["timepoint"]==starting_state["timepoint"]) & \
@@ -93,7 +90,7 @@ for _, gene_level_steps in get_unique_rows(predictions.obs, ['perturbation', "ex
             for i in np.where(prediction_index)[0]:
                 predictions[i, :].X = oracle.adata[train_index,:].layers['simulated_count'].squeeze().mean(0)
     except ValueError as e:
-        for _, starting_state in get_unique_rows(predictions.obs, ['timepoint', 'cell_type']).iterrows(): 
+        for _, starting_state in predictions.obs[['timepoint', 'cell_type']].drop_duplicates().iterrows(): 
             prediction_index = \
                 (predictions.obs["cell_type"]==starting_state["cell_type"] ) & \
                 (predictions.obs["timepoint"]==starting_state["timepoint"] ) & \

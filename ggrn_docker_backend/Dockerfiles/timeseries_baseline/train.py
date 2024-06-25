@@ -58,6 +58,8 @@ def predict_many(num_cells_to_simulate: int, tf: str, expression_level_after_per
             average_prediction += a_single_prediction
         except ValueError:
             num_cells_to_simulate -= 1
+    if num_cells_to_simulate==0:
+        return np.nan
     return average_prediction / num_cells_to_simulate
 
 print("Running simulations")
@@ -67,11 +69,7 @@ predictions = anndata.AnnData(
     var = train.var,
 )
 
-def get_unique_rows(df, factors): 
-    return df[factors].groupby(factors).mean().reset_index()
-
-for _, current_prediction_metadata in get_unique_rows(predictions.obs, ['perturbation', "expression_level_after_perturbation", 'prediction_timescale', 'timepoint', 'cell_type']).iterrows():
-    print("Predicting " + current_prediction_metadata.to_csv(sep=" "))
+for _, current_prediction_metadata in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale', 'timepoint', 'cell_type']].drop_duplicates().iterrows():
     prediction_index = \
         (predictions.obs["cell_type"]==current_prediction_metadata["cell_type"]) & \
         (predictions.obs["timepoint"]==current_prediction_metadata["timepoint"]) & \

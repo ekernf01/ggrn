@@ -678,6 +678,7 @@ class GRN:
             elif containerizer=='singularity':
                 cmd = [
                     "singularity", "run", 
+                    "--no-home", # singularity default is to make a huge mess of portals between container and host and start in a working dir different from Docker. This helps. 
                     "--bind", f"{os.getcwd()}/from_to_docker/:/from_to_docker",
                 ] + self.training_args['containerizer_args'] + [
                     f"docker://{image_name}"

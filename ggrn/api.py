@@ -247,7 +247,7 @@ class GRN:
             # PREDICT:
             #     run next sentence prediction on test data
             #     decode into expression
-        elif method.startswith("docker"):
+        elif method.startswith("docker") or method.startswith("singularity"):
             # There is no actual training here, just copying data. 
             # Training happens when you call predict.
             # This is because we do not want to try to save trained models inside a container and return control flow to Python while leaving the container intact.

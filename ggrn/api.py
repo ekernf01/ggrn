@@ -677,7 +677,7 @@ class GRN:
                 ]
             elif containerizer=='singularity':
                 cmd = [
-                    "singularity", "exec", 
+                    "singularity", "run", 
                     "--bind", f"{os.getcwd()}/from_to_docker/:/from_to_docker",
                 ] + self.training_args['containerizer_args'] + [
                     f"docker://{image_name}"

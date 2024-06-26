@@ -1074,6 +1074,7 @@ class GRN:
             "autoregressive",
             "GeneFormer",
             "docker",
+            "singularity",
             "GEARS",
             "DCDFG",
             "regulon",

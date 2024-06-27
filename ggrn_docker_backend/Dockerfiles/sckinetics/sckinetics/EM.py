@@ -186,7 +186,7 @@ class ExpectationMaximization():
             celltypes_list=select_celltypes
             
         for celltype in celltypes_list:
-            print("Running main EM algorithm for for: "+ str(celltype))
+            print("Running main EM algorithm for: "+ str(celltype))
             G_ = G[celltype]
             X_ = adata.uns['X_{}'.format(celltype)].astype(np.float64)
             A_ = self.celltype_priors[celltype].values

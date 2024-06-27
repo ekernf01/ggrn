@@ -79,10 +79,11 @@ train.obsm['X_transformed'] = pd.DataFrame(
     index=train.obs_names
 )
 for ct in train.obs["cell_type"].unique():
+    ct_index = train.obs["cell_type"]==ct
     try: 
-        train.uns['X_{}'.format(ct)] = pd.DataFrame(train.X.toarray(), index = train.obs_names, columns=train.var_names)
+        train.uns['X_{}'.format(ct)] = pd.DataFrame(train.X.toarray()[ct_index, :], index = train.obs_names[ct_index], columns=train.var_names)
     except AttributeError:
-        train.uns['X_{}'.format(ct)] = pd.DataFrame(train.X, index = train.obs_names, columns=train.var_names)
+        train.uns['X_{}'.format(ct)] = pd.DataFrame(train.X[ct_index, :], index = train.obs_names[ct_index], columns=train.var_names)
 
 # Train it up!
 model = EM.ExpectationMaximization(threads=15, maxiter=20)

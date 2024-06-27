@@ -61,9 +61,9 @@ To run the same backend via Singularity, use `method ="singularity__--cpus='.5'_
 
 ### Advanced: passing args to docker or singularity
 
-You will specify `method="docker__myargs__myimage"` when you call `GRN.fit`. We split on double-underscore, and the stuff in the middle, `"myargs"`, is provided to Docker or singularity as arguments, as in `docker run myargs <other relevant stuff> myimage`. Some relevant technicalities:
+You will specify `method="docker__myargs__myimage"` when you call `GRN.fit`. We split on double-underscore, and the stuff in the middle, `"myargs"`, is provided to Docker as arguments, as in `docker run myargs <other relevant stuff> myimage`. Same with `singularity__myargs__myimage`. Some relevant technicalities:
 
-- We split on spaces and provide it as a list, like `subprocess.call([docker] + myargs + ...)`. For example, to limit the cpu usage, you can use `method="docker__--cpus='.5'__myimage"`, or to use a gpu, you can use `method="docker__--gpus all ubuntu nvidia-smi__myimage"`. 
-- Certain options are already used. With Docker, we always pass in `--rm` to remove the container when it finishes, and we always use `--mount` to share files as described above. With singularity, we use `--bind` to share files. Do not use these args. We have not tested whether there are things you could provide that would interfere with this, so we recommend using no Docker args, like `method="docker____myimage"`. Otherwise you may need some knowledge of Docker or singularity to troubleshoot. 
+- We split `myargs` on spaces and provide it as a list, like `subprocess.call([docker] + myargs.split(' ') + ...)`. For example, to limit the cpu usage, you can use `method="docker__--cpus='.5'__myimage"`, or to use a gpu, you can use `method="docker__--gpus all ubuntu nvidia-smi__myimage"`. 
+- Certain options are already used. With Docker, we always pass in `--rm` to remove the container when it finishes, and we always use `--mount` to share files as described above. With singularity, we use `--bind` to share files and we use `--no-home` for docker compatibility. Do not use these args. We have not tested whether there are things you could provide that would interfere with this, so we recommend using no Docker args, like `method="docker____myimage"`. Otherwise you may need some knowledge of Docker or singularity to troubleshoot. 
 
 

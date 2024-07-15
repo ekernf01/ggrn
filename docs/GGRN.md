@@ -92,9 +92,7 @@ We formalize this with a keyword argument `do_perturbations_persist` that is Boo
 
 #### Interpretation of randomness
 
-RNA-seq, and especially single-cell RNA-seq, produce data that are noisy. Transcription itself is also stochastic. Most of the methods described here include random elements, which could be interpreted as biological reality or measurement error. The intepretation is not always obvious, but we attempt to faithfully summarize the intent behind each method. CellOracle performs smoothing prior to model fitting and includes no noise in simulations, meaning randomness is interpreted as measurement error. PRESCIENT, Dictys, and DCD-FG each propagate noise from gene to gene in their generative models, meaning randomness is interpreted as biological reality. Dictys also includes a binomial model for measurement error. 
-
-Due to the difficulty of causal inference on latent variables, GGRN currently neglects measurement error. GGRN also neglects biological stochasticity.
+RNA-seq, and especially single-cell RNA-seq, produce data that are noisy. Transcription itself is also stochastic. Most of the methods described here include random elements, which could be interpreted as biological reality or measurement error. PRESCIENT, Dictys, and DCD-FG each propagate noise from gene to gene in their generative models, meaning randomness is interpreted as biological reality. Dictys includes boh biological stochasticity via a stochastic differential equation and a binomial model for measurement error. Due to the difficulty of causal inference on latent variables, GGRN currently neglects measurement error and biological stochasticity.
 
 #### Summary 
 

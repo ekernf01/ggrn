@@ -3,6 +3,7 @@ import pereggrn_perturbations
 import ggrn.api as ggrn
 import numpy as np
 import pereggrn_networks
+import pandas as pd
 pereggrn_networks.set_grn_location("../../../../network_collection/networks") # you may need to change this to the path where the networks are stored on your computer.
 pereggrn_perturbations.set_data_path("../../../../perturbation_data/perturbations") # you may need to change this to the path where the perturbations are stored on your computer.
 train = pereggrn_perturbations.load_perturbation("definitive_endoderm", is_timeseries=True)
@@ -31,4 +32,9 @@ grn.fit(
         'scale_lyapunov': 1E5
     },
 )
-ad_out = grn.predict(predictions_metadata = test.obs.loc[np.random.choice(test.obs_names, 50), ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation"]])
+predictions_metadata = pd.merge(
+                    train.obs[['timepoint', 'cell_type']].drop_duplicates(), 
+                    test.obs[['perturbation', 'is_control', 'perturbation_type', "expression_level_after_perturbation"]],
+                    how = "cross", 
+                )
+ad_out = grn.predict(predictions_metadata = predictions_metadata.loc[np.random.choice(predictions_metadata.index, 50),:])

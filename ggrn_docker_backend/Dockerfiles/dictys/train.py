@@ -14,11 +14,21 @@ import os
 def temporaryWorkingDirectory(path):
     _oldCWD = os.getcwd()
     os.chdir(os.path.abspath(path))
-
     try:
         yield
     finally:
         os.chdir(_oldCWD)
+
+def make_unique(original_list):
+    unique_list = []
+    for item in original_list:
+        counter = 0
+        new_item = item
+        while new_item in unique_list:
+            counter += 1
+            new_item = "{}_{}".format(item, counter)
+        unique_list.append(new_item)
+    return unique_list
 
 print("Training a model via dictys.", flush=True)
 train = sc.read_h5ad("from_to_docker/train.h5ad")
@@ -73,7 +83,10 @@ for k in defaults:
 
 print("Converting inputs to dictys' preferred format.", flush=True)
 # Intersect the network with the expression data
-network_features = set(network.get_all_regulators()).union(set(network.get_all_one_field("target")))
+# If there is a regulator in the network that does not appear as a target in the network (has no incoming edges),
+# This causes a pattern of zeros that dictys.network.reconstruct cannot handle.
+# So we remove any regulators that are not also targets, focusing on targets that are also in the expression data.
+network_features = set(network.get_all_one_field("target"))
 common_features = list(train.var.index.intersection(network_features))
 common_features_int = np.array([train.var.index.get_loc(f) for f in common_features])
 network = network.get_all().query("regulator in @common_features and target in @common_features")
@@ -84,26 +97,61 @@ network = pivotNetworkLongToWide(network)
 network.index = network["gene_short_name"]
 del network["gene_short_name"]
 del network["peak_id"]
-# Input network must be square. Make it square by zero-padding (specifying no targets for any non-TF).
+# Input network must be square. Make it square by zero-padding:
+#   - specify no targets for any non-TF.
+#   - If a gene is listed as a TF but not a target, add it to the targets.
 network_non_regulators = list(set(train.var.index) - set(network.columns))
 network.loc[:,network_non_regulators] = 0
+network_non_targets = list(set(train.var.index) - set(network.index))
+network = pd.concat([network, pd.DataFrame({tf:0 for tf in network.columns}, index = network_non_targets)])
+network = network.loc[common_features, common_features]
 # Remove self loops. Without this, we trigger an assertion error in dictys reconstruct line 790, which is documented behavior.
 for g in network.columns:
     network.loc[g,g]=0
 
+if any(pd.isnull(network).any()) or \
+    any(common_features!=network.columns.astype("str")) or \
+        any(common_features!=network.index.values.astype("str") ):
+    print(set(common_features).difference(network.columns))
+    print(set(common_features).difference(network.index))
+    print(set(network.index).difference(common_features))
+    print(set(network.columns).difference(common_features))
+    raise ValueError("There are NaNs or incorrect genes or missing genes in the input network. This will cause dictys to fail.")
+
+def augment_data(X, desired_total):
+    """Add resampled dummy cells to the data to make it square
+
+    Args:
+        X (pd.DataFrame): expression data
+
+    Returns:
+        pd.DataFrame: expression data with resampled dummy cells added
+    """
+    num_new_cells = desired_total - X.shape[0]
+    average_expression = X.sum(axis = 0)
+    newX = pd.DataFrame(index = range(num_new_cells), columns = X.columns)
+    for i in range(num_new_cells):
+        newX.loc[i, :] = [np.random.binomial(np.random.poisson(x), 1/X.shape[0]) for x in average_expression]
+    return pd.concat([X, newX])
+
 indirect_effects = dict()
 for ct in train.obs["cell_type"].unique():
-    os.makedirs(ct)
+    os.makedirs(ct, exist_ok=True)
     with temporaryWorkingDirectory(ct):
         # exporttttt
-        cells_to_use = train.obs["cell_type"]==ct
+        cells_to_use = train.obs.index#query("cell_type==@ct").index        
         try:
-            pd.DataFrame(train.raw[cells_to_use, common_features].X.toarray(), index = train.raw.obs_names, columns = common_features).T.to_csv("exp.tsv", sep="\t")
+            X = pd.DataFrame(train.raw[cells_to_use, common_features].X.toarray(), index = make_unique(cells_to_use), columns = common_features)
         except AttributeError:
-            pd.DataFrame(train.raw[cells_to_use, common_features].X,           index = train.obs_names,     columns = common_features).T.to_csv("exp.tsv", sep="\t")
-
+            X = pd.DataFrame(train.raw[cells_to_use, common_features].X,           index = make_unique(cells_to_use), columns = common_features)
         # Dictys expects one TF per row and CO uses one per column. We transpose the network to match the expected format.
         network.T.to_csv("mask.tsv", sep="\t")
+        # dictys.network.reconstruct errs unless n>p, so we add dummy cells in that case. We add a little buffer for peace of mind; extra 50 cells.
+        if X.shape[1] < network.shape[0]+50: 
+            print("Augmenting data since we have fewer cells than genes.")
+            X = augment_data(X, network.shape[0] + 50)
+        # Dictys expects one gene per row, one cell per column, unlike typical ML or stats data tables.
+        X.T.to_csv("exp.tsv", sep="\t")
         print("Running network reconstruction.", flush=True)
         dictys.network.reconstruct(
             fi_exp="exp.tsv",
@@ -130,7 +178,6 @@ for ct in train.obs["cell_type"].unique():
             fo_weightz = kwargs['fo_weightz'],
             scale_lyapunov = kwargs['scale_lyapunov']
         )
-        
         print("Calculating indirect effects.")
         dictys.network.indirect(
             fi_weight="weight.tsv",
@@ -179,8 +226,6 @@ predictions = anndata.AnnData(
     obs = predictions_metadata,
     var = train_all_features.var,
 )
-
-
 for _, current_prediction_metadata in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale', 'timepoint', 'cell_type']].drop_duplicates().iterrows():
     prediction_index = \
         (predictions.obs["cell_type"]==current_prediction_metadata["cell_type"]) & \

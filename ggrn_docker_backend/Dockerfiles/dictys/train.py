@@ -6,6 +6,20 @@ import pandas as pd
 import scanpy as sc
 from pereggrn_networks import LightNetwork, pivotNetworkLongToWide
 import dictys.network
+import contextlib
+import os
+
+# Thanks to https://stackoverflow.com/a/75049113
+@contextlib.contextmanager
+def temporaryWorkingDirectory(path):
+    _oldCWD = os.getcwd()
+    os.chdir(os.path.abspath(path))
+
+    try:
+        yield
+    finally:
+        os.chdir(_oldCWD)
+
 print("Training a model via dictys.", flush=True)
 train = sc.read_h5ad("from_to_docker/train.h5ad")
 predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
@@ -77,85 +91,56 @@ network.loc[:,network_non_regulators] = 0
 for g in network.columns:
     network.loc[g,g]=0
 
-# exporttttt
-try:
-    pd.DataFrame(train.raw[:, common_features].X.toarray(), index = train.raw.obs_names, columns = common_features).T.to_csv("exp.tsv", sep="\t")
-except AttributeError:
-    pd.DataFrame(train.raw[:, common_features].X, index = train.obs_names, columns = common_features).T.to_csv("exp.tsv", sep="\t")
+indirect_effects = dict()
+for ct in train.obs["cell_type"].unique():
+    os.makedirs(ct)
+    with temporaryWorkingDirectory(ct):
+        # exporttttt
+        cells_to_use = train.obs["cell_type"]==ct
+        try:
+            pd.DataFrame(train.raw[cells_to_use, common_features].X.toarray(), index = train.raw.obs_names, columns = common_features).T.to_csv("exp.tsv", sep="\t")
+        except AttributeError:
+            pd.DataFrame(train.raw[cells_to_use, common_features].X,           index = train.obs_names,     columns = common_features).T.to_csv("exp.tsv", sep="\t")
 
-# Dictys expects one TF per row and CO uses one per column. We transpose the network to match the expected format.
-network.T.to_csv("mask.tsv", sep="\t")
-print("Running network reconstruction.", flush=True)
-dictys.network.reconstruct(
-    fi_exp="exp.tsv",
-    fi_mask="mask.tsv",
-    fo_weight="weight.tsv",
-    fo_meanvar="meanvar.tsv",
-    fo_covfactor="covfactor.tsv",
-    fo_loss="loss.tsv",
-    fo_stats="stats.tsv", 
-    lr = kwargs['lr'],
-    lrd = kwargs['lrd'],
-    nstep = kwargs['nstep'],
-    npc = kwargs['npc'],
-    fi_cov = kwargs['fi_cov'],
-    model = kwargs['model'],
-    nstep_report = kwargs['nstep_report'],
-    rseed = kwargs['rseed'],
-    device = kwargs['device'],
-    dtype = kwargs['dtype'],
-    loss = kwargs['loss'],
-    nth = kwargs['nth'],
-    varmean = kwargs['varmean'],
-    varstd = kwargs['varstd'],
-    fo_weightz = kwargs['fo_weightz'],
-    scale_lyapunov = kwargs['scale_lyapunov']
-)
-#   fi_exp                Path of input tsv file of expression matrix.
-#   fi_mask               Path of input tsv file of mask matrix indicating which
-#                         edges are allowed. Can be output of dictys chromatin
-#                         binlinking.
-#   fo_weight             Path of output tsv file of edge weight matrix
-#   fo_meanvar            Path of output tsv file of mean and variance of each
-#                         gene's relative log expression
-#   fo_covfactor          Path of output tsv file of factors for the off-
-#                         diagonal component of gene covariance matrix
-#   fo_loss               Path of output tsv file of sublosses in each training
-#                         step
-#   fo_stats              Path of output tsv file of basic stats of each
-#                         variable during training
+        # Dictys expects one TF per row and CO uses one per column. We transpose the network to match the expected format.
+        network.T.to_csv("mask.tsv", sep="\t")
+        print("Running network reconstruction.", flush=True)
+        dictys.network.reconstruct(
+            fi_exp="exp.tsv",
+            fi_mask="mask.tsv",
+            fo_weight="weight.tsv",
+            fo_meanvar="meanvar.tsv",
+            fo_covfactor="covfactor.tsv",
+            fo_loss="loss.tsv",
+            fo_stats="stats.tsv", 
+            lr = kwargs['lr'],
+            lrd = kwargs['lrd'],
+            nstep = kwargs['nstep'],
+            npc = kwargs['npc'],
+            fi_cov = kwargs['fi_cov'],
+            model = kwargs['model'],
+            nstep_report = kwargs['nstep_report'],
+            rseed = kwargs['rseed'],
+            device = kwargs['device'],
+            dtype = kwargs['dtype'],
+            loss = kwargs['loss'],
+            nth = kwargs['nth'],
+            varmean = kwargs['varmean'],
+            varstd = kwargs['varstd'],
+            fo_weightz = kwargs['fo_weightz'],
+            scale_lyapunov = kwargs['scale_lyapunov']
+        )
+        
+        print("Calculating indirect effects.")
+        dictys.network.indirect(
+            fi_weight="weight.tsv",
+            fi_covfactor="covfactor.tsv",
+            fi_meanvar="meanvar.tsv",
+            fo_iweight="iweight.tsv",
+            norm = 1, # This puts the result on the scale of change in target per change in regulator. https://github.com/pinellolab/dictys/issues/61
+        )
+        indirect_effects[ct] = pd.read_csv("iweight.tsv", sep="\t", index_col=0)
 
-# print("Rescaling coefficients.")
-# dictys.network.normalize(
-#     fi_weight="weight.tsv",
-#     fi_meanvar="meanvar.tsv",
-#     fi_covfactor="covfactor.tsv",
-#     fo_nweight="nweight.tsv"
-# )
-# #   fi_weight     Path of input tsv file of edge weight matrix
-# #   fi_meanvar    Path of iput tsv file of mean and variance of each gene's
-# #                 relative log expression
-# #   fi_covfactor  Path of iput tsv file of factors for the off-diagonal
-# #                 component of gene covariance matrix
-# #   fo_nweight    Path of output tsv file of normalized edge weight matrix
-
-print("Calculating indirect effects.")
-dictys.network.indirect(
-    fi_weight="weight.tsv",
-    fi_covfactor="covfactor.tsv",
-    fi_meanvar="meanvar.tsv",
-    fo_iweight="iweight.tsv",
-    norm = 1, # This puts the result on the scale of change in target per change in regulator. https://github.com/pinellolab/dictys/issues/61
-)
-#   fi_weight             Path of input tsv file of edge weight matrix
-#   fi_covfactor          Path of iput tsv file of factors for the off-diagonal
-#                         component of gene covariance matrix
-#   fi_meanvar            Path of iput tsv file of mean and variance of each gene's
-#                         relative log expression
-#   fo_iweight            Path of output tsv file of steady-state indirect
-#                         effect edge weight matrix
-
-indirect_effects = pd.read_csv("iweight.tsv", sep="\t", index_col=0)
 def predict_expression(perturbed_gene: str, level: float, cell_type: str, timepoint: int):
     """Predict log-scale post-perturbation expression
 
@@ -182,7 +167,7 @@ def predict_expression(perturbed_gene: str, level: float, cell_type: str, timepo
         pass
     if perturbed_gene in train.var.index:
         change_in_perturbed_gene = level - train[is_baseline, perturbed_gene].X.mean()
-    logfc = indirect_effects.loc[perturbed_gene, :]*change_in_perturbed_gene  # Index name is "regulator" so we want to grab a row, not a column
+    logfc = indirect_effects[cell_type].loc[perturbed_gene, :]*change_in_perturbed_gene  # Index name is "regulator" so we want to grab a row, not a column
     control_expression[common_features_int] = control_expression[common_features_int] + logfc.values
     return control_expression
 

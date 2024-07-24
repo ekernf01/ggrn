@@ -139,21 +139,24 @@ scaler.fit_transform(original_expression)
 
 
 # Make predictions
-print("Running simulations", flush = True)
+print(f"Running {predictions_metadata.shape[0]} simulations", flush = True)
 predictions = anndata.AnnData(
     X = np.zeros((predictions_metadata.shape[0], train.n_vars)),
     obs = predictions_metadata,
     var = train.var,
 )
 
-for _, current_prediction_metadata in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale_steps', 'timepoint', 'cell_type']].drop_duplicates().iterrows():
+for _, current_prediction_metadata in predictions.obs[['cell_type', 'timepoint', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale_steps']].drop_duplicates().iterrows():
     prediction_index = \
         (predictions.obs["cell_type"]                          ==current_prediction_metadata["cell_type"]) & \
         (predictions.obs["timepoint"]                          ==current_prediction_metadata["timepoint"]) & \
         (predictions.obs["perturbation"]                       ==current_prediction_metadata["perturbation"]) & \
         (predictions.obs["expression_level_after_perturbation"]==current_prediction_metadata["expression_level_after_perturbation"]) & \
         (predictions.obs["prediction_timescale_steps"]         ==current_prediction_metadata["prediction_timescale_steps"]) 
-    assert prediction_index.sum() >= 1, "Prediction metadata are out of sync with themselves. Please report this bug."
+    if prediction_index.sum() < 1:
+        print("No predictions to make for this metadatum.")
+        print(current_prediction_metadata.to_csv(sep=" "))
+        continue
     try:
         train_index = (train.obs["cell_type"]==current_prediction_metadata["cell_type"]) & (train.obs["timepoint"]==current_prediction_metadata["timepoint"])
         assert train_index.sum() >= 1, "No training samples have the specified combination of cell_type and timepoint."

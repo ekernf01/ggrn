@@ -619,7 +619,6 @@ class GRN:
         # But, the perturbations have not been propagated to the features or the expression predictions. 
         assert type(predictions) == anndata.AnnData, f"predictions must be anndata; got {type(predictions)}"
         predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
-        predictions.obs["is_control"] = False
         if 'perturbation_type' not in predictions.obs.columns:
             if "perturbation_type" not in self.train.obs.columns:
                 raise KeyError("A column perturbation_type must be present in predictions_metadata, or in predictions.obs, or in self.train.obs.")
@@ -631,7 +630,7 @@ class GRN:
         if 'cell_type' not in predictions.obs.columns:
             if "cell_type" not in self.train.obs.columns:
                 self.train.obs["cell_type"] = "unknown"
-            predictions.obs["cell_type"] = self.train.obs["cell_type"][0]       
+            predictions.obs["cell_type"] = self.train.obs["cell_type"][0]
         predictions.obs.index = [str(x) for x in range(len(predictions.obs.index))]
         desired_cols = columns_to_transfer + ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", "is_control"]
         for c in desired_cols:

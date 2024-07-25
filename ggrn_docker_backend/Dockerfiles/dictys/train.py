@@ -31,19 +31,20 @@ def make_unique(original_list):
     return unique_list
 
 print("Training a model via dictys.", flush=True)
-train = sc.read_h5ad("from_to_docker/train.h5ad")
-predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
+os.chdir("from_to_docker")
+train = sc.read_h5ad("train.h5ad")
+predictions_metadata = pd.read_csv("predictions_metadata.csv")
 for c in ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']:
     assert c in predictions_metadata.columns, f"For the ggrn prescient backend, predictions_metadata.columns is required to contain {c}."
 
-with open(os.path.join("from_to_docker/kwargs.json")) as f:
+with open(os.path.join("kwargs.json")) as f:
     kwargs = json.load(f)
 
-with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
+with open(os.path.join("ggrn_args.json")) as f:
     ggrn_args = json.load(f)
 
 try:
-    network = LightNetwork(files = ["from_to_docker/network.parquet"])
+    network = LightNetwork(files = ["network.parquet"])
 except FileNotFoundError as e:
     raise ValueError(
 """
@@ -86,7 +87,7 @@ print("Converting inputs to dictys' preferred format.", flush=True)
 # If there is a regulator in the network that does not appear as a target in the network (has no incoming edges),
 # This causes a pattern of zeros that dictys.network.reconstruct cannot handle.
 # So we remove any regulators that are not also targets, focusing on targets that are also in the expression data.
-network_features = set(network.get_all_one_field("target"))
+network_features = set(network.get_all_one_field("target")).union(set(network.get_all_one_field("regulator")))
 common_features = list(train.var.index.intersection(network_features))
 common_features_int = np.array([train.var.index.get_loc(f) for f in common_features])
 network = network.get_all().query("regulator in @common_features and target in @common_features")
@@ -139,18 +140,18 @@ for ct in train.obs["cell_type"].unique():
     os.makedirs(ct, exist_ok=True)
     with temporaryWorkingDirectory(ct):
         # exporttttt
-        cells_to_use = train.obs.index#query("cell_type==@ct").index        
+        cells_to_use = train.obs.query("cell_type==@ct").index        
         try:
             X = pd.DataFrame(train.raw[cells_to_use, common_features].X.toarray(), index = make_unique(cells_to_use), columns = common_features)
         except AttributeError:
             X = pd.DataFrame(train.raw[cells_to_use, common_features].X,           index = make_unique(cells_to_use), columns = common_features)
         # Dictys expects one TF per row and CO uses one per column. We transpose the network to match the expected format.
         network.T.to_csv("mask.tsv", sep="\t")
-        # dictys.network.reconstruct errs unless n>p, so we add dummy cells in that case. We add a little buffer for peace of mind; extra 50 cells.
-        if X.shape[1] < network.shape[0]+50: 
+        # dictys.network.reconstruct errs unless n>p, so we add dummy cells in that case. 
+        if X.shape[0] < network.shape[0]: 
             print("Augmenting data since we have fewer cells than genes.")
-            X = augment_data(X, network.shape[0] + 50)
-        # Dictys expects one gene per row, one cell per column, unlike typical ML or stats data tables.
+            X = augment_data(X, network.shape[0])
+        # Dictys expects one gene per row, one cell per column, unlike typical ML or stats data tables. So, transpose before saving.
         X.T.to_csv("exp.tsv", sep="\t")
         print("Running network reconstruction.", flush=True)
         dictys.network.reconstruct(
@@ -244,4 +245,4 @@ for _, current_prediction_metadata in predictions.obs[['perturbation', "expressi
     
 
 print("Saving results.")
-predictions.write_h5ad("from_to_docker/predictions.h5ad")
+predictions.write_h5ad("predictions.h5ad")

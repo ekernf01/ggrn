@@ -73,14 +73,23 @@ defaults = {
     'varmean': 'N_0val',
     'varstd': None,
     'fo_weightz': None,
-    'scale_lyapunov': 1E5
+    'scale_lyapunov': 1E5,
+    'minimum_expression': 0.125
 }
 for k in defaults:
     if k not in kwargs:
         kwargs[k] = defaults[k]
 
-# We apply dictys based on the full tutorial at https://github.com/pinellolab/dictys/blob/master/doc/tutorials/full-multiome/notebooks/3-static-inference.ipynb
-
+# Dictys requires a minimum expression cutoff.
+print("Filtering genes for minimum expression.")
+ise = train.X.sum(axis = 0) >= kwargs['minimum_expression']*train.X.shape[0]
+train.var["is_sufficiently_expressed"] = ise.T
+for g in predictions_metadata["perturbation"]:
+    if g in train.var_names and not train.var.loc[g, "is_sufficiently_expressed"]:
+        print(f"Gene {g} falls below minimum_expression ({kwargs['minimum_expression']}). Perturbations of it will not be predicted.")
+        predictions_metadata = predictions_metadata.query("perturbation!=@g")
+train_all_features = train.copy()
+train = train[:, train.var["is_sufficiently_expressed"]]
 
 print("Converting inputs to dictys' preferred format.", flush=True)
 # Intersect the network with the expression data
@@ -91,7 +100,6 @@ network_features = set(network.get_all_one_field("target")).union(set(network.ge
 common_features = list(train.var.index.intersection(network_features))
 common_features_int = np.array([train.var.index.get_loc(f) for f in common_features])
 network = network.get_all().query("regulator in @common_features and target in @common_features")
-train_all_features = train.copy()
 train = train[:, common_features]
 # Convert to dictys' preferred format via celloracle's preferred format
 network = pivotNetworkLongToWide(network) 
@@ -215,8 +223,11 @@ def predict_expression(perturbed_gene: str, level: float, cell_type: str, timepo
         pass
     if perturbed_gene in train.var.index:
         change_in_perturbed_gene = level - train[is_baseline, perturbed_gene].X.mean()
-    logfc = indirect_effects[cell_type].loc[perturbed_gene, :]*change_in_perturbed_gene  # Index name is "regulator" so we want to grab a row, not a column
-    control_expression[common_features_int] = control_expression[common_features_int] + logfc.values
+        logfc = indirect_effects[cell_type].loc[perturbed_gene, :]*change_in_perturbed_gene  # Index name is "regulator" so we want to grab a row, not a column
+        logfc = logfc.values
+    else:
+        logfc = 0
+    control_expression[common_features_int] = control_expression[common_features_int] + logfc
     return control_expression
 
 

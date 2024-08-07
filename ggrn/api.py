@@ -1381,6 +1381,7 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
         pd.DataFrame({"id": train_data.obs_names, "day": [int(b) for b in train_data.obs["is_control"]]}).to_csv(CELL_DAYS_PATH, sep = "\t")
         train_data.write_h5ad(VAR_GENE_DS_PATH)
         wot_adata = wot.io.read_dataset(VAR_GENE_DS_PATH, obs=[CELL_DAYS_PATH])
+        wot_adata.obs["day"] = [int(b) for b in train_data.obs["is_control"]] # This seems redundant, but sometimes wot.io returns NaNs for day.
         ot_model  = wot.ot.OTModel(wot_adata,epsilon = 0.05, lambda1 = 1,lambda2 = 50)
         del train_data.obs["matched_control"]
         train_data.obs.loc[~train_data.obs["is_control"], "matched_control"] = control_indices_integer[ot_model.compute_transport_map(0,1).X.argmax(axis = 1)]

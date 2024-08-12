@@ -210,6 +210,8 @@ class GRN:
             assert len(confounders)==0, "autoregressive models cannot currently include confounders."
             assert cell_type_sharing_strategy=="identical", "autoregressive models cannot currently fit each cell type separately."
             assert predict_self, "autoregressive models currently cannot exclude autoregulation. Set predict_self=True to continue."
+            assert len(prediction_timescale)==1, "autoregressive models currently can only use prediction_timescale=[1]."
+            assert prediction_timescale[0]==1, "autoregressive models currently can only use prediction_timescale=[1]."
             # Default to a 20-dimensional latent space learned from data.
             # But if given an informative prior network, reformat it for use as projection to latent space.
             if network_prior=="ignore":
@@ -229,7 +231,7 @@ class GRN:
                 low_dimensional_structure = low_dimensional_structure,
                 low_dimensional_training = low_dimensional_training,
                 low_dimensional_value = low_dimensional_value, 
-                S = prediction_timescale
+                S = 1
             )
             autoregressive_model.train()      
             self.models = autoregressive_model

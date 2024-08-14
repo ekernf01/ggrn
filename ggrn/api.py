@@ -256,7 +256,7 @@ class GRN:
             try:
                 shutil.rmtree("from_to_docker")
             except Exception as e:
-                print(f"Could not remove previous docker data with error {e}.")
+                print(f"Could not remove previous docker data; message was {e}.")
             os.makedirs("from_to_docker", exist_ok=True)
             ggrn_args = {
                 "regression_method": method,

@@ -255,8 +255,8 @@ class GRN:
             # This is because we do not want to try to save trained models inside a container and return control flow to Python while leaving the container intact.
             try:
                 shutil.rmtree("from_to_docker")
-            except:
-                pass
+            except Exception as e:
+                print(f"Could not remove previous docker data with error {e}.")
             os.makedirs("from_to_docker", exist_ok=True)
             ggrn_args = {
                 "regression_method": method,
@@ -679,7 +679,7 @@ class GRN:
             elif containerizer=='singularity':
                 cmd = [
                     "singularity", "run", 
-                    "--no-home", # singularity default is to make a huge mess of portals between container and host and start in a working dir different from Docker. This helps. 
+                    "--no-home", # singularity default is to make a huge mess of portals between container and host and start in a working dir different from Docker. This helps avoid some of that. 
                     "--bind", f"{os.getcwd()}/from_to_docker/:/from_to_docker",
                 ] + self.training_args['containerizer_args'] + [
                     f"docker://{image_name}"

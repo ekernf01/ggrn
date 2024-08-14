@@ -272,9 +272,9 @@ class GRN:
                 "prediction_timescale": prediction_timescale,
                 "predict_self": bool(predict_self), 
             }
-            with open("from_to_docker/ggrn_args.json", "x") as f:
+            with open("from_to_docker/ggrn_args.json", "w") as f:
                 json.dump(ggrn_args, f, default = float) # default=float allows numpy numbers to be converted instead of choking json.
-            with open("from_to_docker/kwargs.json", "x") as f:
+            with open("from_to_docker/kwargs.json", "w") as f:
                 json.dump(kwargs, f, default = float) 
         elif method.startswith("GEARS"):
             if not HAS_GEARS:

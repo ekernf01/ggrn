@@ -732,12 +732,12 @@ class GRN:
                 # We are computing f(f(...f(X)...)) one f() at a time and saving whichever intermediate timepoints are in prediction_timescale. 
                 # predictions is already in the right shape etc to contain all timepoints.
                 # We're going to use a view of the final timepoint as working memory, because it can be continuously 
-                # overwritten until the last iteration. By the final iteration, it is what we wanted anyway.
+                # overwritten until the last iteration. One the final iteration, it will reach what we want.
                 is_last = predictions.obs["prediction_timescale"]==max(prediction_timescale)
                 starting_features = self.extract_features(
                     # Feature extraction requires matching to be done already. 
-                    # We can just tell it to extract features for each predicted instance from that same instance,
-                    # because we have already initialized it to the right starting state. 
+                    # We can just tell ggrn to extract features for each predicted instance from that same instance,
+                    # because above, we initialized the expression to the right starting state. 
                     train = match_controls(
                         predictions[is_last, :].copy(), 
                         matching_method = "steady_state", 
@@ -745,6 +745,7 @@ class GRN:
                     ),
                     in_place=False, 
                 ).copy()
+                cell_type_labels = cell_type_labels[is_last]
                 if feature_extraction_requires_raw_data:
                     del predictions.raw # save memory: raw data are no longer needed after feature extraction
                 gc.collect()

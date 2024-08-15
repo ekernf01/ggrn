@@ -257,6 +257,7 @@ class GRN:
                 shutil.rmtree("from_to_docker")
             except Exception as e:
                 print(f"Could not remove previous docker data; message was {e}. This can happen if Docker has root access but the user does not.")
+                breakpoint()
                 raise e
             os.makedirs("from_to_docker", exist_ok=True)
             ggrn_args = {

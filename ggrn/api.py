@@ -665,8 +665,12 @@ class GRN:
             print(f"image name: {image_name}")
             print(f"args to containerizer: {containerizer_args}")
             self.training_args["containerizer_args"] = [s for s in containerizer_args.split(" ") if s!=""]
-            self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
-            self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
+            try:
+                self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
+                self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
+            except KeyError:
+                # Timeseries training data are not required to have .uns["perturbed_but_not_measured_genes"] or .uns["perturbed_and_measured_genes"]
+                pass
             self.train.write_h5ad("from_to_docker/train.h5ad")
             if self.network is not None: 
                 self.network.get_all().to_parquet("from_to_docker/network.parquet")

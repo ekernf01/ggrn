@@ -754,7 +754,7 @@ class GRN:
                     ),
                     in_place=False, 
                 ).copy()
-                cell_type_labels = cell_type_labels[is_last]
+                cell_type_labels = None if cell_type_labels is None else cell_type_labels[is_last]
                 if feature_extraction_requires_raw_data:
                     del predictions.raw # save memory: raw data are no longer needed after feature extraction
                 gc.collect()

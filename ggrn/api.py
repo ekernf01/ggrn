@@ -305,8 +305,12 @@ class GRN:
                 self.train.obs[k] = self.train.obs[k].astype("str") 
             self.train.uns["log1p"] = dict()
             self.train.uns["log1p"]["base"] = np.exp(1)
-            self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
-            self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
+            try:
+                self.train.uns["perturbed_and_measured_genes"] = list(self.train.uns["perturbed_and_measured_genes"])
+                self.train.uns["perturbed_but_not_measured_genes"] = list(self.train.uns["perturbed_but_not_measured_genes"])
+            except KeyError:
+                # timeseries training data might not have these keys, which is fine. 
+                pass
             self.train.X = scipy.sparse.csr_matrix(self.train.X)
             pert_frequencies = self.train.obs['condition'].value_counts()
             singleton_perts = pert_frequencies[pert_frequencies==1].index

@@ -9,7 +9,8 @@ A Docker container to let GGRN interface to CellOracle. Here is how the standard
 - `feature_extraction`: ignored (fixed to "mRNA")
 - `low_dimensional_structure`: ignored (fixed to "none")
 - `low_dimensional_training`: ignored 
-- `pruning_strategy`: this is mapped to "threshold_number" in "links.filter_links"
+- `pruning_strategy`: ignored -- CellOracle alwasy does pruning.
+- `pruning_parameter`: this is mapped to "threshold_number" in "links.filter_links"
 - `network`: This is mapped to "TF_info_matrix" in "oracle.import_TF_data"
 - `network_prior`: fixed to "restrictive"
 - `cell_type_sharing_strategy`: ignored (set to "distinct")

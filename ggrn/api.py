@@ -68,7 +68,8 @@ class GRN:
         eligible_regulators: list = None,
         validate_immediately: bool = True,
         feature_extraction: str = "mrna",
-        memoization_folder = tempfile.mkdtemp()
+        memoization_folder = tempfile.mkdtemp(), 
+        default_geneformer_model = "../Geneformer",
     ):
         """Create a GRN object.
 
@@ -80,6 +81,7 @@ class GRN:
             feature_extraction (str, optional): How to extract features. Defaults to "tf_rna", which uses the mRNA level of the TF. You 
                 can also specify "geneformer" to use GeneFormer to extract cell embeddings. 
             memoization_folder (str, optional): Where to store memoized results, e.g. for a lengthy grid search on a cluster with a 36 hour time limit. 
+            default_geneformer_model (str, optional): Path to the GeneFormer model used for feature extraction. Defaults to "../Geneformer".
         """
         self.train = train
         try:
@@ -92,6 +94,7 @@ class GRN:
         self.training_args = {}
         self.features = None
         self.geneformer_finetuned = None
+        self.default_geneformer_model = default_geneformer_model
         self.feature_extraction = "mrna" if (feature_extraction is None or isnan_safe(feature_extraction)) else feature_extraction
         self.eligible_regulators = eligible_regulators
         self.memoization_folder = memoization_folder
@@ -159,9 +162,9 @@ class GRN:
         assert cell_type_labels == "cell_type", "The column with cell type labels must be called 'cell_type'."
         if not isinstance(prediction_timescale, list):
             prediction_timescale = [prediction_timescale]
-        if self.feature_extraction.lower().startswith("geneformer"):            
+        if self.feature_extraction.lower().startswith("geneformer"):
             assert predict_self, "GGRN cannot exclude autoregulation when using geneformer for feature extraction."
-            assert len(prediction_timescale)==1 and prediction_timescale[0]==1, "GGRN cannot do iterative prediction when using geneformer for feature extraction."
+            assert len(prediction_timescale)==1 and prediction_timescale[0]==1, f"GGRN cannot do iterative prediction when using geneformer for feature extraction. Please set prediction_timescale to [1]. Received {prediction_timescale}"
         if network_prior is None:
             network_prior = "ignore" if self.network is None else "restrictive"
         if network_prior != "ignore":
@@ -281,7 +284,7 @@ class GRN:
             if not HAS_GEARS:
                 raise ImportError("GEARS is not installed, and related models will not be available.")
             assert len(confounders)==0, "Our interface to GEARS cannot currently include confounders."
-            assert len(prediction_timescale)==1 and prediction_timescale[0]==1, "GEARS cannot do iterative prediction. Please set prediction_timescale=[1]."
+            assert len(prediction_timescale)==1 and prediction_timescale[0]==1, f"GEARS cannot do iterative prediction. Please set prediction_timescale=[1]. Received {prediction_timescale}."
             assert network_prior=="ignore", "Our interface to GEARS cannot currently include custom networks."
             assert cell_type_sharing_strategy=="identical", "Our interface to GEARS cannot currently fit each cell type separately."
             assert predict_self, "Our interface to GEARS cannot rule out autoregulation. Set predict_self=True."
@@ -349,10 +352,6 @@ class GRN:
             self.train.obs_names = ["cell_" + c for c in self.train.obs_names] #Empty string as obs names causes problems, so concat all with a prefix
             pert_data.new_data_process(dataset_name = 'current', adata = self.train)
             pert_data.load(data_path = './ggrn_gears_input/current')
-            # For the data split, we use train_gene_set_size = 0.95 instead of the default.
-            # This is not documented; however, it has the effect of using more of the input for train and
-            # validation instead of the test set. A test set has already been reserved by our 
-            # benchmarking framework in a typical use of this code. 
             try:
                 pert_data.prepare_split(split = 'no_test', seed = kwargs["seed"] )
                 pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
@@ -376,7 +375,7 @@ class GRN:
             assert network_prior=="ignore", "DCDFG cannot currently include known network structure."
             assert cell_type_sharing_strategy=="identical", "DCDFG cannot currently fit each cell type separately."
             assert not predict_self, "DCDFG cannot include autoregulation."
-            assert len(prediction_timescale)==1 and prediction_timescale[0]==1, "DCD-FG cannot do iterative prediction. Please set prediction_timescale=[1]."
+            assert len(prediction_timescale)==1 and prediction_timescale[0]==1, f"DCD-FG cannot do iterative prediction. Please set prediction_timescale=[1]. Received {prediction_timescale}."
             factor_graph_model = dcdfg_wrapper.DCDFGCV()
             try:
                 _, constraint_mode, model_type, do_use_polynomials = method.split("-")
@@ -527,6 +526,7 @@ class GRN:
         prediction_timescale: list = [1],
         feature_extraction_requires_raw_data: bool = False
     ):
+        print(prediction_timescale)
         """Predict expression after new perturbations.
 
         Args:
@@ -547,7 +547,7 @@ class GRN:
                 where e is IID Gaussian with variance equal to the estimated residual variance.
             noise_sd (bool): sd of the variable e described above. Defaults to estimates from the fitted models.
             seed (int): RNG seed.
-            prediction_timescale (list): how many time-steps forward to predict. If the list has multiple elements, we predict those points on a trajectory.
+            prediction_timescale (list): how many time-steps forward to predict. If the list has multiple elements, we predict all those points -- we return an expression trajectory).
             feature_extraction_requires_raw_data (bool): We recommend to set to True with GeneFormer and False otherwise.
 
         Returns: AnnData with predicted expression after perturbations. The shape and .obs metadata will be the same as the input "predictions" or "predictions_metadata".
@@ -601,10 +601,10 @@ class GRN:
             predictions_one = toArraySafe(self.train.X[  all_controls,:]).mean(axis=0, keepdims = True)
             if feature_extraction_requires_raw_data:
                 predictions_one_raw = toArraySafe(self.train.raw.X[  all_controls,:]).mean(axis=0, keepdims = True)
-            for i in predictions.obs_names:
+            for inti, i in enumerate(predictions.obs_names):
                 predictions[i, :].X = predictions_one.copy()
                 if feature_extraction_requires_raw_data:
-                    predictions.raw[i, :].X = predictions_one_raw.copy()
+                    predictions.raw.X[inti, :] = predictions_one_raw.copy()
                 for col in columns_to_transfer:
                     predictions.obs.loc[i, col] = starting_metadata_one.loc[:,col][0]
 
@@ -728,9 +728,9 @@ class GRN:
             # Input to GEARS is list of lists
             y = self.models.predict([p.split(",") for p in non_control])
             # Result is a dict with keys like "FOXA1_HNF4A"
-            for i, p in predictions.obs.iterrows(): 
-                if p in self.models.pert_list:
-                    predictions.X[i,:] = y[p["perturbation"].replace(",", "_")]
+            for i, row in predictions.obs.iterrows(): 
+                if row["perturbation"] in self.models.pert_list:
+                    predictions[i,:].X = y[row["perturbation"].replace(",", "_")]
         else: # backend 1, regression-based
             if self.training_args["cell_type_sharing_strategy"] == "distinct":
                 cell_type_labels = predictions.obs[self.training_args["cell_type_labels"]]
@@ -840,7 +840,7 @@ class GRN:
             assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently, GeneFormer feature extraction can only be used with the steady-state matching scheme."
             if not HAS_GENEFORMER:
                 raise ImportError("GeneFormer backend is not installed, and related models will not be available.")
-            self.geneformer_finetuned = "ctheodoris/GeneFormer" # Default to pretrained model with no fine-tuning
+            self.geneformer_finetuned = self.default_geneformer_model  # Default to pretrained model with no fine-tuning
             self.eligible_regulators = list(range(256))
             file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels)
         # Check if user has already fine-tuned a model
@@ -859,6 +859,7 @@ class GRN:
             self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
                     file_with_tokens = file_with_tokens, 
                     column_with_labels = geneformer_finetune_labels,
+                    base_model = self.default_geneformer_model,
                 )
         # Fine-tune with hyperparam sweep if 0) desired and 1) possible and 2) not done already
         if self.feature_extraction.lower() in {"geneformer_hyperparam_finetune"} and \
@@ -890,7 +891,8 @@ class GRN:
             file_with_tokens = file_with_tokens,
             assume_unrecognized_genes_are_controls = True,
             apply_perturbation_explicitly = True, 
-            file_with_finetuned_model = self.geneformer_finetuned
+            file_with_finetuned_model = self.geneformer_finetuned, 
+            file_with_default_model = self.default_geneformer_model,
         )
         # Return results or add to GRN object
         if in_place:

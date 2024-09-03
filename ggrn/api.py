@@ -348,22 +348,23 @@ class GRN:
                 if k not in kwargs:
                     kwargs[k] = defaults[k]
             # Follow GEARS data setup tutorial
-            pert_data = GEARSPertData("./ggrn_gears_input", default_pert_graph = True)
-            self.train.obs_names = ["cell_" + c for c in self.train.obs_names] #Empty string as obs names causes problems, so concat all with a prefix
-            pert_data.new_data_process(dataset_name = 'current', adata = self.train)
-            pert_data.load(data_path = './ggrn_gears_input/current')
-            try:
-                pert_data.prepare_split(split = 'no_test', seed = kwargs["seed"] )
-                pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
-                self.models = GEARS(pert_data, device = kwargs["device"])
-                self.models.model_initialize(hidden_size = kwargs["hidden_size"])
-            except Exception as e:
-                print(f"GEARS failed with error {repr(e)}. Falling back on a slightly suboptimal training strategy.")
-                pert_data.prepare_split(train_gene_set_size = 0.95, seed = kwargs["seed"] )
-                pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
-                self.models = GEARS(pert_data, device = kwargs["device"])
-                self.models.model_initialize(hidden_size = kwargs["hidden_size"])
-            self.models.train(epochs = kwargs["epochs"])
+            with tempfile.TemporaryDirectory() as gears_input_folder:
+                pert_data = GEARSPertData(gears_input_folder, default_pert_graph = True)
+                self.train.obs_names = ["cell_" + c for c in self.train.obs_names] #Empty string as obs names causes problems, so concat all with a prefix
+                pert_data.new_data_process(dataset_name = 'current', adata = self.train)
+                pert_data.load(data_path = os.path.join(gears_input_folder, 'current'))
+                try:
+                    pert_data.prepare_split(split = 'no_test', seed = kwargs["seed"] )
+                    pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
+                    self.models = GEARS(pert_data, device = kwargs["device"])
+                    self.models.model_initialize(hidden_size = kwargs["hidden_size"])
+                except Exception as e:
+                    print(f"GEARS failed with error {repr(e)}. Falling back on a slightly suboptimal training strategy.")
+                    pert_data.prepare_split(train_gene_set_size = 0.95, seed = kwargs["seed"] )
+                    pert_data.get_dataloader(batch_size = kwargs["batch_size"], test_batch_size = kwargs["test_batch_size"])
+                    self.models = GEARS(pert_data, device = kwargs["device"])
+                    self.models.model_initialize(hidden_size = kwargs["hidden_size"])
+                self.models.train(epochs = kwargs["epochs"])
         elif method.startswith("DCDFG"):
             assert HAS_DCDFG, "DCD-FG wrapper is not installed, and related models (DCD-FG, NOTEARS) cannot be used."
             np.testing.assert_equal(
@@ -836,64 +837,65 @@ class GRN:
             else:
                 return features
 
-        if self.feature_extraction.lower().startswith("geneformer"):
-            assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently, GeneFormer feature extraction can only be used with the steady-state matching scheme."
-            if not HAS_GENEFORMER:
-                raise ImportError("GeneFormer backend is not installed, and related models will not be available.")
-            self.geneformer_finetuned = self.default_geneformer_model  # Default to pretrained model with no fine-tuning
-            self.eligible_regulators = list(range(256))
-            file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels)
-        # Check if user has already fine-tuned a model
-        if self.feature_extraction.lower().startswith("geneformer_model_"):
-            self.geneformer_finetuned = self.feature_extraction.removeprefix("geneformer_model_")
-        # Check if we have labels to fine-tune a model
-        if self.feature_extraction.lower() in {"geneformer_finetune", "geneformer_hyperparam_finetune"} and geneformer_finetune_labels not in train.obs.columns:
-            print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. "
-                    "Embeddings will be extracted from the pre-trained model. If this message occurs after training, the fine-tuning "
-                    "may have taken place already during training, and that model will be re-used.")
-            geneformer_finetune_labels = None
-        # Fine-tune without hyperparam sweep if 0) desired and 1) possible and 2) not done already
-        if self.feature_extraction == "geneformer_finetune" and \
-            geneformer_finetune_labels is not None and \
-                self.geneformer_finetuned is None:
-            self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
-                    file_with_tokens = file_with_tokens, 
-                    column_with_labels = geneformer_finetune_labels,
-                    base_model = self.default_geneformer_model,
-                )
-        # Fine-tune with hyperparam sweep if 0) desired and 1) possible and 2) not done already
-        if self.feature_extraction.lower() in {"geneformer_hyperparam_finetune"} and \
-            geneformer_finetune_labels is not None and \
-                self.geneformer_finetuned is None:
-            try:
-                optimal_hyperparameters = geneformer_hyperparameter_optimization.optimize_hyperparameters(file_with_tokens, column_with_labels = geneformer_finetune_labels, n_cpu = n_cpu)
+        with tempfile.TemporaryDirectory() as folder_with_tokens:
+            if self.feature_extraction.lower().startswith("geneformer"):
+                assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently, GeneFormer feature extraction can only be used with the steady-state matching scheme."
+                if not HAS_GENEFORMER:
+                    raise ImportError("GeneFormer backend is not installed, and related models will not be available.")
+                self.geneformer_finetuned = self.default_geneformer_model  # Default to pretrained model with no fine-tuning
+                self.eligible_regulators = list(range(256))
+                file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels, folder_with_tokens = folder_with_tokens)
+            # Check if user has already fine-tuned a model
+            if self.feature_extraction.lower().startswith("geneformer_model_"):
+                self.geneformer_finetuned = self.feature_extraction.removeprefix("geneformer_model_")
+            # Check if we have labels to fine-tune a model
+            if self.feature_extraction.lower() in {"geneformer_finetune", "geneformer_hyperparam_finetune"} and geneformer_finetune_labels not in train.obs.columns:
+                print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. "
+                        "Embeddings will be extracted from the pre-trained model. If this message occurs after training, the fine-tuning "
+                        "may have taken place already during training, and that model will be re-used.")
+                geneformer_finetune_labels = None
+            # Fine-tune without hyperparam sweep if 0) desired and 1) possible and 2) not done already
+            if self.feature_extraction == "geneformer_finetune" and \
+                geneformer_finetune_labels is not None and \
+                    self.geneformer_finetuned is None:
                 self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
-                    file_with_tokens = file_with_tokens, 
-                    column_with_labels = geneformer_finetune_labels,
-                    max_input_size = 2 ** 11,  # 2048
-                    max_lr                = optimal_hyperparameters[2]["learning_rate"],
-                    freeze_layers = 2,
-                    geneformer_batch_size = optimal_hyperparameters[2]["per_device_train_batch_size"],
-                    lr_schedule_fn        = optimal_hyperparameters[2]["lr_scheduler_type"],
-                    warmup_steps          = optimal_hyperparameters[2]["warmup_steps"],
-                    epochs                = optimal_hyperparameters[2]["num_train_epochs"],
-                    optimizer = "adamw",
-                    GPU_NUMBER = [], 
-                    seed                  = 42, 
-                    weight_decay          = optimal_hyperparameters[2]["weight_decay"],
-                )
-            except ray.tune.error.TuneError as e:
-                print(f"Hyperparameter selection failed with error {repr(e)}. Fine-tuning with default hyperparameters.")
-                self.feature_extraction = "geneformer_finetune"
-        
-        features = geneformer_embeddings.get_geneformer_perturbed_cell_embeddings(
-            adata_train=train,
-            file_with_tokens = file_with_tokens,
-            assume_unrecognized_genes_are_controls = True,
-            apply_perturbation_explicitly = True, 
-            file_with_finetuned_model = self.geneformer_finetuned, 
-            file_with_default_model = self.default_geneformer_model,
-        )
+                        file_with_tokens = file_with_tokens, 
+                        column_with_labels = geneformer_finetune_labels,
+                        base_model = self.default_geneformer_model,
+                    )
+            # Fine-tune with hyperparam sweep if 0) desired and 1) possible and 2) not done already
+            if self.feature_extraction.lower() in {"geneformer_hyperparam_finetune"} and \
+                geneformer_finetune_labels is not None and \
+                    self.geneformer_finetuned is None:
+                try:
+                    optimal_hyperparameters = geneformer_hyperparameter_optimization.optimize_hyperparameters(file_with_tokens, column_with_labels = geneformer_finetune_labels, n_cpu = n_cpu)
+                    self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
+                        file_with_tokens = file_with_tokens, 
+                        column_with_labels = geneformer_finetune_labels,
+                        max_input_size = 2 ** 11,  # 2048
+                        max_lr                = optimal_hyperparameters[2]["learning_rate"],
+                        freeze_layers = 2,
+                        geneformer_batch_size = optimal_hyperparameters[2]["per_device_train_batch_size"],
+                        lr_schedule_fn        = optimal_hyperparameters[2]["lr_scheduler_type"],
+                        warmup_steps          = optimal_hyperparameters[2]["warmup_steps"],
+                        epochs                = optimal_hyperparameters[2]["num_train_epochs"],
+                        optimizer = "adamw",
+                        GPU_NUMBER = [], 
+                        seed                  = 42, 
+                        weight_decay          = optimal_hyperparameters[2]["weight_decay"],
+                    )
+                except ray.tune.error.TuneError as e:
+                    print(f"Hyperparameter selection failed with error {repr(e)}. Fine-tuning with default hyperparameters.")
+                    self.feature_extraction = "geneformer_finetune"
+            
+            features = geneformer_embeddings.get_geneformer_perturbed_cell_embeddings(
+                adata_train=train,
+                file_with_tokens = file_with_tokens,
+                assume_unrecognized_genes_are_controls = True,
+                apply_perturbation_explicitly = True, 
+                file_with_finetuned_model = self.geneformer_finetuned, 
+                file_with_default_model = self.default_geneformer_model,
+            )
         # Return results or add to GRN object
         if in_place:
             self.features = features # shallow copy is best here too

@@ -23,7 +23,7 @@ RUN conda env create -f environment.yml
 
 # from https://pythonspeed.com/articles/activate-conda-dockerfile/
 # Make RUN commands use the new environment:
-SHELL ["conda", "run", "-n", "scanpy_env", "/bin/bash", "-c"]
+# SHELL ["conda", "run", "-n", "scanpy_env", "/bin/bash", "-c"]
 COPY ./train.py /train.py
 
 # Run train.py in sc_kinetics environment when the container starts

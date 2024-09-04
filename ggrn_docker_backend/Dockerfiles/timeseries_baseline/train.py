@@ -30,7 +30,7 @@ for k in defaults:
     if k not in kwargs:
         kwargs[k] = defaults[k]
 
-def predict_one(tf: str, expression_level_after_perturbation: float, cell_type: str, timepoint: int, num_steps: int):
+def predict_many(tf: str, expression_level_after_perturbation: float, cell_type: str, timepoint: int, num_steps: int):
     """Predict expression after TF perturbation
 
     Args:
@@ -40,27 +40,17 @@ def predict_one(tf: str, expression_level_after_perturbation: float, cell_type: 
         timepoint (int): starting timepoint
         num_steps (int): how many time-steps ahead to predict
     """
-    current_cell = train.obs_names[(train.obs["cell_type"]==cell_type) & (train.obs["timepoint"]==timepoint)]
-    current_cell = np.random.choice(current_cell, size = 1)
+    current_cells = train.obs_names[(train.obs["cell_type"]==cell_type) & (train.obs["timepoint"]==timepoint)]
     for _ in range(num_steps):
-        # Find descendents and select one at random
-        next_cells = [c for c in train.obs_names if train.obs.loc[c, "matched_control"] in current_cell]
+        next_cells = np.unique([c for c in train.obs_names if train.obs.loc[c, "matched_control"] in current_cells])
         if len(next_cells) == 0:
-            raise ValueError("No descendents found.")
-        current_cell = np.random.choice(next_cells, size = 1)
-    return train[current_cell, :].X
-    
-def predict_many(num_cells_to_simulate: int, tf: str, expression_level_after_perturbation: float, cell_type: str, timepoint: int, num_steps: int):
-    average_prediction = np.zeros(train.n_vars)
-    for j in range(num_cells_to_simulate):
-        try:
-            a_single_prediction = predict_one(tf, expression_level_after_perturbation, cell_type, timepoint, num_steps)
-            average_prediction += a_single_prediction
-        except ValueError:
-            num_cells_to_simulate -= 1
-    if num_cells_to_simulate==0:
-        return np.nan
-    return average_prediction / num_cells_to_simulate
+            return np.nan
+        most_common_cell_type = train.obs.loc[next_cells, "cell_type"].value_counts().idxmax()
+        current_cells = train.obs.query("cell_type==@most_common_cell_type").index
+        if len(current_cells)>0:
+            return train[current_cells, :].X.mean(axis = 0)
+        else:
+            return np.nan
 
 print("Running simulations")
 predictions = anndata.AnnData(
@@ -79,7 +69,7 @@ for _, current_prediction_metadata in predictions.obs[['perturbation', "expressi
     train_index = (train.obs["cell_type"]==current_prediction_metadata["cell_type"]) & (train.obs["timepoint"]==current_prediction_metadata["timepoint"])
     goi, level, prediction_timescale = current_prediction_metadata[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']]
     for i in np.where(prediction_index)[0]:
-        predictions[i, :].X = predict_many(kwargs["num_cells_to_simulate"], goi, level, current_prediction_metadata["cell_type"], current_prediction_metadata["timepoint"], prediction_timescale) 
+        predictions[i, :].X = predict_many(goi, level, current_prediction_metadata["cell_type"], current_prediction_metadata["timepoint"], prediction_timescale) 
     
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

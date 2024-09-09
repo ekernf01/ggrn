@@ -18,8 +18,8 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
     /bin/bash ~/miniconda.sh -b -p /opt/conda
 ENV PATH=$CONDA_DIR/bin:$PATH
 
-COPY sckinetics_requirements.yml .
-RUN conda env create -f sckinetics_requirements.yml
+COPY sckinetics_requirements_lite.yml .
+RUN conda env create -f sckinetics_requirements_lite.yml
 
 # from https://pythonspeed.com/articles/activate-conda-dockerfile/
 # Make RUN commands use the new environment:

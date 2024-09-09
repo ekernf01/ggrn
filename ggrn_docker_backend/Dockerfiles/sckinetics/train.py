@@ -112,11 +112,13 @@ def predict_one(tf: str, expression_level_after_perturbation: float, cell_type: 
         timepoint (int): starting timepoint
         num_steps (int): how many time-steps ahead to predict
     """
+    expression_level_after_perturbation = np.array([float(x) for x in str(expression_level_after_perturbation).split(",")])
+    tf = np.array([x for x in str(tf).split(",")])
     A=model.A_[cell_type].astype(np.float64)
     A=np.nan_to_num(A)
     X = train_all_genes[(train_all_genes.obs["cell_type"]==cell_type) & (train_all_genes.obs["timepoint"]==timepoint), :].X.mean(0).copy()
     try:
-        tf_index = train_all_genes.var.index.get_loc(tf)
+        tf_index = np.array([train_all_genes.var.index.get_loc(g) for g in tf])
     except KeyError:
         raise ValueError(f"TF {tf} not found in the training data.")
     for _ in range(num_steps):

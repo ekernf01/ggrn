@@ -1,0 +1,23 @@
+name: sc_kinetics
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.7
+  - numpy
+  - pandas
+  - matplotlib
+  - seaborn
+  - scipy
+  - scanpy
+  - scvelo
+  - tqdm
+  - scikit-learn
+  - nodejs
+  - pip
+  - matplotlib
+  - joblib
+  - biopython
+  - pip:
+    - MOODS-python
+    - ucsc-genomes-downloader

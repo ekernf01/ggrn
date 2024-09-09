@@ -679,6 +679,7 @@ class GRN:
             predictions.obs.to_csv("from_to_docker/predictions_metadata.csv")
             assert os.path.isfile("from_to_docker/train.h5ad"), "Expected to find from_to_docker/train.h5ad"
             if containerizer=='docker':
+                pull_cmd = ["docker", "pull", f"{image_name}"]
                 cmd = [
                     "docker", "run", 
                     "--rm",
@@ -687,6 +688,7 @@ class GRN:
                     f"{image_name}"
                 ]
             elif containerizer=='singularity':
+                pull_cmd = ["singularity", "pull", f"{image_name}"]
                 cmd = [
                     "singularity", "run", 
                     "--no-home", # singularity default is to make a huge mess of portals between container and host and start in a working dir different from Docker. This helps avoid some of that. 
@@ -696,7 +698,9 @@ class GRN:
                 ]                
             else:
                 raise ValueError(f"Unknown containerizer {containerizer}. Expected 'docker' or 'singularity'.")
-            print(f"Running command:\n\n{' '.join(cmd)}\n\nwith logs from_to_docker/stdout.txt, from_to_docker/err.txt", flush = True)
+            print(f"Pulling latest with command:\n\n{' '.join(pull_cmd)}\n\n", flush = True)
+            return_code = subprocess.call(pull_cmd)
+            print(f"Running container with command:\n\n{' '.join(cmd)}\n\nwith logs from_to_docker/stdout.txt, from_to_docker/err.txt", flush = True)
             with open('from_to_docker/stdout.txt', 'w') as out:
                 with open('from_to_docker/err.txt', 'w') as err:
                     return_code = subprocess.call(cmd, stdout=out, stderr=err)

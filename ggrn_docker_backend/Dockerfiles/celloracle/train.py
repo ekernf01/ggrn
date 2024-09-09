@@ -73,8 +73,13 @@ predictions = anndata.AnnData(
 for _, gene_level_steps in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']].drop_duplicates().iterrows(): 
     try:
         oracle.simulate_shift(
+            # For multi-gene perturbations, the format provided by ggrn is like "OCT4,NANOG" and "2.11135,5.09493".
             perturb_condition={
-                gene_level_steps["perturbation"]: gene_level_steps["expression_level_after_perturbation"]
+                g:x 
+                for g,x in zip(
+                                           gene_level_steps["perturbation"]                        .split(","), 
+                    [float(z) for z in str(gene_level_steps["expression_level_after_perturbation"]).split(",")]
+                )
             }, 
             n_propagation=gene_level_steps["prediction_timescale"], 
             ignore_warning = True

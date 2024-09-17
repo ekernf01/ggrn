@@ -5,6 +5,7 @@ FROM lfwa/dictys-cpu
 SHELL ["conda", "run", "-n", "dictys", "/bin/bash", "-c"]
 RUN pip install scanpy 
 RUN pip install anndata
+RUN echo "install bump"
 RUN cd ~ && git clone "https://github.com/ekernf01/pereggrn_networks"
 RUN cd ~ && pip install -e pereggrn_networks/
 

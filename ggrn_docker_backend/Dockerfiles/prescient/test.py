@@ -22,7 +22,7 @@ grn.fit(
 )
 # This is different from the test.py for most Docker backends, because does_simulation_progress is set to True.  
 predictions_metadata = pd.merge(
-    test.obs.loc[np.random.choice(test.obs_names, 50), ['perturbation', "expression_level_after_perturbation", "perturbation_type"]],
+    test.obs.loc[np.random.choice(test.obs_names, 50), ['perturbation', "expression_level_after_perturbation", "perturbation_type", "is_control"]],
     train.obs[['cell_type', "timepoint"]].drop_duplicates(),
     how = "cross"
 )

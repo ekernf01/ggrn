@@ -20,6 +20,7 @@ predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv", in
 expected_columns = np.array(['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale'])
 for c in expected_columns:
     assert c in predictions_metadata.columns, f"For the ggrn celloracle backend, predictions_metadata.columns is required to contain {c}."
+predictions_metadata["error_message"] = ""
 with open(os.path.join("from_to_docker/kwargs.json")) as f:
     kwargs = json.load(f)
 with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
@@ -103,6 +104,7 @@ for _, gene_level_steps in predictions.obs[['perturbation', "expression_level_af
                 (predictions.obs["expression_level_after_perturbation"]==gene_level_steps["expression_level_after_perturbation"] ) & \
                 (predictions.obs["prediction_timescale"]==gene_level_steps["prediction_timescale"] )
             predictions[prediction_index, :].X = np.nan
+            predictions.obs.loc[prediction_index, "error_message"] = repr(e)
         print("Prediction failed for " + gene_level_steps.to_csv() + " with error " + repr(e))
 
 print("Saving results.")

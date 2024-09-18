@@ -14,10 +14,14 @@ import scipy.sparse
 import json
 import gc
 import ray.tune.error
-from torch.cuda import is_available as is_gpu_available
 import subprocess
 import warnings
 import tempfile
+
+try:
+    from torch.cuda import is_available as is_gpu_available
+except ImportError:
+    HAS_TORCH = False
 try:
     import ggrn_backend2.api as dcdfg_wrapper
     HAS_DCDFG = True 
@@ -204,7 +208,9 @@ class GRN:
                     )
         if method.startswith("autoregressive"):
             if not HAS_AUTOREGRESSIVE:
-                raise Exception("autoregressive backend is not installed, and related models will not be available.")
+                raise Exception("autoregressive backend is not installed.")
+            if not HAS_TORCH: 
+                raise ImportError("PyTorch is not installed, so autoregressive models will not be available.")
             np.testing.assert_equal(
                 np.array(self.eligible_regulators), 
                 np.array(self.train.var_names),     
@@ -282,7 +288,9 @@ class GRN:
                 json.dump(kwargs, f, default = float) 
         elif method.startswith("GEARS"):
             if not HAS_GEARS:
-                raise ImportError("GEARS is not installed, and related models will not be available.")
+                raise ImportError("GEARS is not installed.")
+            if not HAS_TORCH: 
+                raise ImportError("PyTorch is not installed, and GEARS will not be available.")
             assert len(confounders)==0, "Our interface to GEARS cannot currently include confounders."
             assert len(prediction_timescale)==1 and prediction_timescale[0]==1, f"GEARS cannot do iterative prediction. Please set prediction_timescale=[1]. Received {prediction_timescale}."
             assert network_prior=="ignore", "Our interface to GEARS cannot currently include custom networks."
@@ -367,6 +375,7 @@ class GRN:
                 self.models.train(epochs = kwargs["epochs"])
         elif method.startswith("DCDFG"):
             assert HAS_DCDFG, "DCD-FG wrapper is not installed, and related models (DCD-FG, NOTEARS) cannot be used."
+            assert HAS_TORCH, "PyTorch is not installed, so DCD-FG and related models will not be available."
             np.testing.assert_equal(
                 np.array(self.eligible_regulators), 
                 np.array(self.train.var_names),     
@@ -844,8 +853,10 @@ class GRN:
         with tempfile.TemporaryDirectory() as folder_with_tokens:
             if self.feature_extraction.lower().startswith("geneformer"):
                 assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently, GeneFormer feature extraction can only be used with the steady-state matching scheme."
+                if not HAS_TORCH:
+                    raise ImportError("PyTorch is not installed, so GeneFormer cannot be used.")
                 if not HAS_GENEFORMER:
-                    raise ImportError("GeneFormer backend is not installed, and related models will not be available.")
+                    raise ImportError("GeneFormer backend is not installed.")
                 self.geneformer_finetuned = self.default_geneformer_model  # Default to pretrained model with no fine-tuning
                 self.eligible_regulators = list(range(256))
                 file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels, folder_with_tokens = folder_with_tokens)
@@ -958,7 +969,6 @@ class GRN:
             pruning_strategy (str): See args for 'fit' method
             pruning_parameter (int): See args for 'fit' method
             do_parallel (bool): If True, use joblib parallelization to fit models. 
-            verbose (int, optional): Passed to joblib.Parallel. Defaults to 1.
 
         Returns:
             No return value. Instead, this modifies self.models.

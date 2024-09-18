@@ -491,7 +491,7 @@ class GRN:
                         alphas=(0.01, 0.1, 1.0, 10.0, 100), 
                         fit_intercept=True,
                         alpha_per_target=False, 
-                        store_cv_values=True, #this lets us use ._cv_values later for simulating data.
+                        store_cv_results=True, #this lets us use ._cv_values later for simulating data.
                         **kwargs,
                     ).fit(X, y)
             elif method == "RidgeCVExtraPenalty":
@@ -500,7 +500,7 @@ class GRN:
                         alphas=(0.01, 0.1, 1.0, 10.0, 100), 
                         fit_intercept=True,
                         alpha_per_target=False, 
-                        store_cv_values=True, #this lets us use ._cv_values later for simulating data.
+                        store_cv_results=True, #this lets us use ._cv_values later for simulating data.
                         **kwargs,
                     ).fit(X, y)
                     if rcv.alpha_ == np.max(rcv.alphas):
@@ -509,7 +509,7 @@ class GRN:
                             alphas=bigger_alphas, 
                             fit_intercept=True,
                             alpha_per_target=False, 
-                            store_cv_values=True,
+                            store_cv_results=True,
                              **kwargs,
                         ).fit(X, y)
                     return rcv
@@ -795,7 +795,7 @@ class GRN:
                 if noise_sd is None:
                     # From the docs on the RidgeCV attribute ".cv_values_":
                     # 
-                    # > only available if store_cv_values=True and cv=None). 
+                    # > only available if store_cv_results=True and cv=None). 
                     # > After fit() has been called, this attribute will contain 
                     # > the mean squared errors if scoring is None otherwise it will 
                     # > contain standardized per point prediction values.

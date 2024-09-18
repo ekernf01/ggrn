@@ -15,7 +15,7 @@ setup(
     author_email='eric.kern13@gmail.com',
     packages=find_packages(),
     install_requires=[
-        'torch', 'pytorch-lightning','numpy','scikit-learn','pandas','anndata'
+        'numpy','scikit-learn','pandas','anndata'
     ],
     python_requires=">=3.7", 
     url='https://github.com/ekernf01/ggrn',

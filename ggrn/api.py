@@ -1444,9 +1444,9 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
     train_data.obs.loc[train_data.obs["matched_control"].isnull(), "index_among_eligible_observations"] = np.nan
     # The above code provides an integer index for each matched control. This code is for if you want e.g. a cell barcode instead.
     if not matched_control_is_integer and matching_method.lower() != "user":
-        breakpoint()
         has_matched_control = train_data.obs["matched_control"].notnull()
+        train_data.obs["matched_control_int"] =train_data.obs["matched_control"]
         train_data.obs["matched_control"] = train_data.obs["matched_control"].astype(str)
-        train_data.obs.loc[has_matched_control, "matched_control"] = train_data.obs.index[train_data.obs.loc[has_matched_control, "matched_control"]]
+        train_data.obs.loc[has_matched_control, "matched_control"] = train_data.obs.index[[int(i) for i in train_data.obs.loc[has_matched_control, "matched_control_int"]]]
         train_data.obs.loc[~has_matched_control, "matched_control"] = np.nan
     return train_data

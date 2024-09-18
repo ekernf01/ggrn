@@ -1320,8 +1320,6 @@ def get_regulators(eligible_regulators, predict_self: bool, network_prior: str, 
     """
     if network_prior == "ignore":
         selected_features = eligible_regulators.copy()
-        if network is None or network.get_all().shape[0]==0:
-            warnings.warn(f"Network_prior was set to 'ignore', but an informative network was passed in: \n{network}")
     elif network_prior == "restrictive":
         assert network is not None, "For restrictive network priors, you must provide the network as a LightNetwork object."
         regulators = network.get_regulators(target=target)

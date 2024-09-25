@@ -24,7 +24,6 @@ RUN conda env create -f environment.yml
 # from https://pythonspeed.com/articles/activate-conda-dockerfile/
 # Make RUN commands use the new environment:
 SHELL ["conda", "run", "-n", "scanpy_env", "/bin/bash", "-c"]
-COPY ./train.py /train.py
 RUN cd ~ && git clone "https://github.com/ekernf01/pereggrn_perturbations"
 RUN cd ~ && git clone "https://github.com/ekernf01/pereggrn_networks"
 RUN cd ~ && git clone "https://github.com/ekernf01/ggrn"
@@ -33,6 +32,7 @@ RUN cd ~ && pip install -e pereggrn_perturbations/
 RUN cd ~ && pip install -e pereggrn_networks/
 RUN cd ~ && pip install -e ggrn/
 RUN cd ~ && pip install -e pereggrn/
+COPY ./train.py /train.py
 
 
 # Run train.py in sc_kinetics environment when the container starts

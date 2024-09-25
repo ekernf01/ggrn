@@ -39,8 +39,23 @@ def solve_y_axb_for_x(Y, A, B, A_ridge = kwargs["ridge_penalty"], B_ridge = kwar
 # Compute mean expression before pseudo-bulking
 baseline = sce[sce.obs["is_control"], :].X.mean(axis = 0)
 # We can only train on or predict perturbations for genes that are measured, because we need the expression-based embedding. 
-sce = sce[sce.obs["perturbation"].isin(sce.uns["perturbed_and_measured_genes"]), :]
+print(f"Train data number of (samples, perturbations): {sce.n_obs}, {sce.obs['perturbation'].nunique()}")
+print("Removing perturbations that are not measured.")
+keepers = np.array([
+    all([
+        g in sce.uns["perturbed_and_measured_genes"] 
+        for g in p.split(",")
+    ]) 
+    for p in sce.obs["perturbation"]
+])
+pd.DataFrame(sce.var_names).to_csv("from_to_docker/genes.csv", index = False)
+print(pd.value_counts(keepers))
+sce.obs.loc[ keepers, "perturbation"].value_counts().to_csv("from_to_docker/kept_perturbations.csv")
+sce.obs.loc[~keepers, "perturbation"].value_counts().to_csv("from_to_docker/removed_perturbations.csv")
+
+sce = sce[keepers, :]
 predictions_metadata = predictions_metadata.loc[predictions_metadata["perturbation"].isin(sce.var_names), :]
+print(f"Train data number of (samples, perturbations): {sce.n_obs}, {sce.obs['perturbation'].nunique()}")
 # Pseudobulk, center, do PCA
 psce = averageWithinPerturbation(sce)
 centered_data = psce.X - baseline # this works as intended: https://numpy.org/doc/stable/user/basics.broadcasting.html

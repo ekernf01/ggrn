@@ -1,6 +1,7 @@
+ggrn.egg-info
 *.h5ad
 *.pyc
 wandb
 geneformer_loom_data
 tokenized_data
-
+build

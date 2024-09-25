@@ -13,7 +13,6 @@ import numpy as np
 import scipy.sparse
 import json
 import gc
-import ray.tune.error
 import subprocess
 import warnings
 import tempfile
@@ -40,6 +39,7 @@ except ImportError:
     HAS_AUTOREGRESSIVE = False
 try:
     from geneformer_embeddings import geneformer_embeddings, geneformer_hyperparameter_optimization
+    import ray.tune.error
     HAS_GENEFORMER = True
 except ImportError:
     HAS_GENEFORMER = False
@@ -856,7 +856,7 @@ class GRN:
                 if not HAS_TORCH:
                     raise ImportError("PyTorch is not installed, so GeneFormer cannot be used.")
                 if not HAS_GENEFORMER:
-                    raise ImportError("GeneFormer backend is not installed.")
+                    raise ImportError("GeneFormer backend is not installed -- are you missing GeneFormer, geneformer_embeddings, or ray[tune]?")
                 self.geneformer_finetuned = self.default_geneformer_model  # Default to pretrained model with no fine-tuning
                 self.eligible_regulators = list(range(256))
                 file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels, folder_with_tokens = folder_with_tokens)

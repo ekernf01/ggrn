@@ -276,6 +276,7 @@ for _, current_prediction_metadata in predictions.obs[['perturbation', "expressi
     for i in np.where(prediction_index)[0]:
         predictions[i, :].X = x
     
-
+print("Summary of errors encountered:")
+print(predictions.obs["error_message"].value_counts())
 print("Saving results.")
 predictions.write_h5ad("predictions.h5ad")

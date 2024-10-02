@@ -72,6 +72,7 @@ predictions = anndata.AnnData(
     obs = predictions_metadata,
     var = adata.var,
 )
+predictions.obs["error_message"] = ""
 for _, starting_state in predictions.obs[['timepoint', 'type_and_time']].drop_duplicates().iterrows():
     initial_state = adata[adata.obs['type_and_time']==starting_state['type_and_time'], :].copy()
     xstates = onesc.define_states_adata(initial_state, min_mean = 0.05, min_percent_cells = 0.20)
@@ -107,5 +108,7 @@ for _, starting_state in predictions.obs[['timepoint', 'type_and_time']].drop_du
                 predictions[i, :].X = predictions[i, :].X + predicted_expression[j][gene_level_steps["prediction_timescale"], :].X
             predictions[i, :].X = predictions[i, :].X / kwargs["num_cells_to_simulate"]
 
+print("Summary of error messages encounered during prediction:")
+print(predictions.obs["error_message"].value_counts())
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

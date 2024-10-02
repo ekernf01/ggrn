@@ -70,7 +70,7 @@ predictions = anndata.AnnData(
     obs = predictions_metadata,
     var = train.var,
 )
-
+predictions.obs["error_message"] = ""
 for _, gene_level_steps in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']].drop_duplicates().iterrows(): 
     try:
         oracle.simulate_shift(
@@ -105,7 +105,8 @@ for _, gene_level_steps in predictions.obs[['perturbation', "expression_level_af
                 (predictions.obs["prediction_timescale"]==gene_level_steps["prediction_timescale"] )
             predictions[prediction_index, :].X = np.nan
             predictions.obs.loc[prediction_index, "error_message"] = repr(e)
-        print("Prediction failed for " + gene_level_steps.to_csv() + " with error " + repr(e))
 
+print("Summary of error messages encounered during prediction:")
+print(predictions.obs["error_message"].value_counts())
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

@@ -135,7 +135,7 @@ predictions = anndata.AnnData(
     obs = predictions_metadata,
     var = train_all_genes.var,
 )
-
+predictions.obs["error_message"] = ""
 for _, current_prediction_metadata in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale', 'timepoint', 'cell_type']].drop_duplicates().iterrows():
     prediction_index = \
         (predictions.obs["cell_type"]==current_prediction_metadata["cell_type"]) & \
@@ -150,8 +150,9 @@ for _, current_prediction_metadata in predictions.obs[['perturbation', "expressi
             predictions[i, :].X = predict_one(goi, level, current_prediction_metadata["cell_type"], current_prediction_metadata["timepoint"], prediction_timescale).flatten()
     except ValueError as e:
         predictions[prediction_index, :].X = np.nan
-        print("Prediction failed. Error text: " + str(e))
+        predictions.obs.loc[prediction_index, "error_message"] = repr(e)
 
-    
+print("Summary of error messages encounered during prediction:")
+print(predictions.obs["error_message"].value_counts())    
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

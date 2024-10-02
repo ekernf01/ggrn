@@ -146,6 +146,7 @@ predictions = anndata.AnnData(
     var = train.var,
 )
 
+predictions.obs["error_message"] = ""
 for _, current_prediction_metadata in predictions.obs[['cell_type', 'timepoint', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale_steps']].drop_duplicates().iterrows():
     prediction_index = \
         (predictions.obs["cell_type"]                          ==current_prediction_metadata["cell_type"]) & \
@@ -205,9 +206,10 @@ for _, current_prediction_metadata in predictions.obs[['cell_type', 'timepoint',
             predictions[i, :].X = scaler.inverse_transform(scaled_expression) 
     except Exception as e:
         predictions[prediction_index, :].X = np.nan
-        print("Prediction failed. Error text: " + str(e))
-        print("Metadata: " + current_prediction_metadata.to_csv(sep=" "))
+        predictions.obs.loc[i, "error_message"] = repr(e)
 
+print("Summary of error messages encounered during prediction:")
+print(predictions.obs["error_message"].value_counts())
 # Convert back to original timepoint labels before returning the data
 predictions.obs["timepoint"] = [time_scales["convert_consecutive_to_original"][t] for t in predictions.obs["timepoint"]]
 print("Saving results.")

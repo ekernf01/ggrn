@@ -9,8 +9,13 @@ RUN pip install git+https://github.com/ekernf01/prescient@3c873425e96cbd894e8773
 # RUN pip install -r requirements.txt --break-system-packages
 # COPY prescient prescient
 # RUN pip install -e prescient --no-deps --break-system-packages
-COPY hs_birth_msigdb_kegg.csv . 
-COPY hs_death_msigdb_kegg.csv .
+COPY human_birth.csv .
+COPY human_death.csv .
+COPY mouse_birth.csv .
+COPY mouse_death.csv .
+COPY zebrafish_birth.csv .
+COPY zebrafish_death.csv .
+
 COPY estimate-growth-rates.py .
 COPY ./train.py /train.py
 ENTRYPOINT ["python3", "train.py"]

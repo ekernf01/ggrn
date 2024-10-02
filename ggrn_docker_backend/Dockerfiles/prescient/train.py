@@ -87,14 +87,18 @@ if any( predictions_metadata["takedown_timepoint_consecutive"] > final_timepoint
 predictions_metadata["timepoint"] = predictions_metadata["timepoint_consecutive"].copy()
 predictions_metadata["prediction_timescale_steps"] = [time_scales["convert_consecutive_to_steps"][t]    for t in predictions_metadata["prediction_timescale"]]
 
-
 print("Estimating growth rates.", flush=True)
+assert kwargs["species"] + "_birth.csv" in os.listdir(), f"Proliferation-associated genes for {kwargs['species']} not found. Cannot run PRESCIENT."
+assert kwargs["species"] + "_death.csv" in os.listdir(), f"Apoptosis-associated genes for {kwargs['species']} not found. Cannot run PRESCIENT."
 subprocess.call(["python3", "estimate-growth-rates.py", 
-                 "--input_h5ad", "from_to_docker/train.h5ad", 
-                 "--outfile", "growth_rates.pt"])
+                "--input_h5ad", "from_to_docker/train.h5ad", 
+                "--birth_gst", kwargs["species"] + "_birth.csv",
+                "--death_gst", kwargs["species"] + "_death.csv",
+                "--outfile", "growth_rates.pt"])
 
 print("Processing input data.", flush=True)
-subprocess.call([
+subprocess.call(
+    [
     "prescient", "process_data", 
     "-d", "from_to_docker/train.h5ad", 
     "-o", "train", 
@@ -206,7 +210,7 @@ for _, current_prediction_metadata in predictions.obs[['cell_type', 'timepoint',
             predictions[i, :].X = scaler.inverse_transform(scaled_expression) 
     except Exception as e:
         predictions[prediction_index, :].X = np.nan
-        predictions.obs.loc[i, "error_message"] = repr(e)
+        predictions.obs.loc[prediction_index, "error_message"] = repr(e)
 
 print("Summary of error messages encounered during prediction:")
 print(predictions.obs["error_message"].value_counts())

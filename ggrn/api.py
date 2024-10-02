@@ -74,6 +74,7 @@ class GRN:
         feature_extraction: str = "mrna",
         memoization_folder = tempfile.mkdtemp(), 
         default_geneformer_model = "../Geneformer",
+        species = "human",
     ):
         """Create a GRN object.
 
@@ -86,7 +87,9 @@ class GRN:
                 can also specify "geneformer" to use GeneFormer to extract cell embeddings. 
             memoization_folder (str, optional): Where to store memoized results, e.g. for a lengthy grid search on a cluster with a 36 hour time limit. 
             default_geneformer_model (str, optional): Path to the GeneFormer model used for feature extraction. Defaults to "../Geneformer".
+            species (str, optional): Species of the training data. Defaults to "human".
         """
+        self.species = species
         self.train = train
         try:
             self.train.X = self.train.X.toarray()
@@ -282,6 +285,7 @@ class GRN:
                 "prediction_timescale": prediction_timescale,
                 "predict_self": bool(predict_self), 
             }
+            kwargs["species"] = self.species
             with open("from_to_docker/ggrn_args.json", "w") as f:
                 json.dump(ggrn_args, f, default = float) # default=float allows numpy numbers to be converted instead of choking json.
             with open("from_to_docker/kwargs.json", "w") as f:

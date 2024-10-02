@@ -40,7 +40,7 @@ def solve_y_axb_for_x(Y, A, B, A_ridge = kwargs["ridge_penalty"], B_ridge = kwar
 baseline = sce[sce.obs["is_control"], :].X.mean(axis = 0)
 # We can only train on or predict perturbations for genes that are measured, because we need the expression-based embedding. 
 print(f"Train data number of (samples, perturbations): {sce.n_obs}, {sce.obs['perturbation'].nunique()}")
-print("Removing perturbations that are not measured.")
+print("Removing perturbations of genes that are not measured.")
 keepers = np.array([
     all([
         g in sce.uns["perturbed_and_measured_genes"] 
@@ -52,10 +52,22 @@ pd.DataFrame(sce.var_names).to_csv("from_to_docker/genes.csv", index = False)
 print(pd.value_counts(keepers))
 sce.obs.loc[ keepers, "perturbation"].value_counts().to_csv("from_to_docker/kept_perturbations.csv")
 sce.obs.loc[~keepers, "perturbation"].value_counts().to_csv("from_to_docker/removed_perturbations.csv")
-
 sce = sce[keepers, :]
-predictions_metadata = predictions_metadata.loc[predictions_metadata["perturbation"].isin(sce.var_names), :]
-print(f"Train data number of (samples, perturbations): {sce.n_obs}, {sce.obs['perturbation'].nunique()}")
+print(f"Final train data number of (samples, perturbations): {sce.n_obs}, {sce.obs['perturbation'].nunique()}")
+
+print(f"Test data number of (samples, perturbations): {predictions_metadata.shape[0]}, {predictions_metadata['perturbation'].nunique()}")
+print("From the requested predictions, removing perturbations of genes that are not measured.")
+keepers_test = np.array([
+    all([
+        g in sce.var_names
+        for g in p.split(",")
+    ]) 
+    for p in predictions_metadata["perturbation"]
+])
+print(pd.value_counts(keepers_test))
+predictions_metadata = predictions_metadata.loc[keepers_test | predictions_metadata["is_control"], :]
+print(f"Final test data number of (samples, perturbations): {predictions_metadata.shape[0]}, {predictions_metadata['perturbation'].nunique()}")
+
 # Pseudobulk, center, do PCA
 psce = averageWithinPerturbation(sce)
 centered_data = psce.X - baseline # this works as intended: https://numpy.org/doc/stable/user/basics.broadcasting.html
@@ -64,16 +76,31 @@ gene_emb = gene_pca.components_
 
 # Features used: the PCA embeddings of the perturbed genes
 genezzzzz = list(psce.var_names)
+def get_embedding(p, is_control):
+    """Get embeddings, handling edge cases.
+
+    Args:
+        p (_type_): perturbation in the format "SOX9" or "SOX9,SOX6"
+        is_control (bool): whether the perturbation is a control
+
+    Returns:
+        np.array: for multi-gene perturbations, take the mean of the gene embeddings. For single-gene perturbations, the gene embedding. For controls, a zero vector.
+
+    """
+    if is_control:
+        return np.zeros(kwargs["pca_dim"])
+    return gene_emb.copy()[:,[genezzzzz.index(g) for g in p.split(",")]].mean(1)
+
 pert_emb_train = np.vstack(
     [
-        gene_emb.copy()[:,[genezzzzz.index(g) for g in p.split(",")]].mean(1) # for multi-gene perturbations, take the mean of the gene embeddings
-        for p in psce[~psce.obs["is_control"], :].obs["perturbation"]
+        get_embedding(p, i)
+        for p,i in psce.obs[["perturbation", "is_control"]].itertuples(index=False, name=None)
     ]
 ).T
 pert_emb_test   = np.vstack(
     [
-        gene_emb.copy()[:,[genezzzzz.index(g) for g in p.split(",")]].mean(1) # for multi-gene perturbations, take the mean of the gene embeddings
-        for p in predictions_metadata["perturbation"]
+        get_embedding(p, i) 
+        for p,i in predictions_metadata[["perturbation", "is_control"]].itertuples(index=False, name=None)
     ]
 ).T
 

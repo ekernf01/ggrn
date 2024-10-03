@@ -30,6 +30,10 @@ for k in defaults:
     if k not in kwargs:
         kwargs[k] = defaults[k]
 
+cell_type_means = {
+    ct: np.array(train[train.obs["cell_type"]==ct, :].X.mean(axis = 0))
+    for ct in train.obs["cell_type"].unique()
+}
 def predict_many(tf: str, expression_level_after_perturbation: float, cell_type: str, timepoint: int, num_steps: int):
     """Predict expression after TF perturbation
 
@@ -44,13 +48,9 @@ def predict_many(tf: str, expression_level_after_perturbation: float, cell_type:
     for _ in range(num_steps):
         next_cells = np.unique([c for c in train.obs_names if train.obs.loc[c, "matched_control"] in current_cells])
         if len(next_cells) == 0:
-            return np.nan
-        most_common_cell_type = train.obs.loc[next_cells, "cell_type"].value_counts().idxmax()
-        current_cells = train.obs.query("cell_type==@most_common_cell_type").index
-        if len(current_cells)>0:
-            return train[current_cells, :].X.mean(axis = 0)
-        else:
-            return np.nan
+            return cell_type_means[cell_type]
+        next_cell_type = train.obs.loc[next_cells, "cell_type"].value_counts().idxmax()
+        return cell_type_means[next_cell_type]
 
 print("Running simulations")
 predictions = anndata.AnnData(
@@ -58,7 +58,7 @@ predictions = anndata.AnnData(
     obs = predictions_metadata,
     var = train.var,
 )
-
+predictions.obs["error_message"] = ""
 for _, current_prediction_metadata in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale', 'timepoint', 'cell_type']].drop_duplicates().iterrows():
     prediction_index = \
         (predictions.obs["cell_type"]==current_prediction_metadata["cell_type"]) & \
@@ -68,8 +68,14 @@ for _, current_prediction_metadata in predictions.obs[['perturbation', "expressi
         (predictions.obs["prediction_timescale"]==current_prediction_metadata["prediction_timescale"]) 
     train_index = (train.obs["cell_type"]==current_prediction_metadata["cell_type"]) & (train.obs["timepoint"]==current_prediction_metadata["timepoint"])
     goi, level, prediction_timescale = current_prediction_metadata[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']]
-    for i in np.where(prediction_index)[0]:
-        predictions[i, :].X = predict_many(goi, level, current_prediction_metadata["cell_type"], current_prediction_metadata["timepoint"], prediction_timescale) 
-    
+    for i in prediction_index[prediction_index].index:
+        try:
+            predictions[i, :].X = predict_many(goi, level, current_prediction_metadata["cell_type"], current_prediction_metadata["timepoint"], prediction_timescale) 
+        except Exception as e:
+            predictions.obs.loc[i, "error_message"] = repr(e)
+            predictions[i, :].X = np.nan
+
+print("Summary of errors:")
+print(predictions.obs["error_message"].value_counts())
 print("Saving results.")
 predictions.write_h5ad("from_to_docker/predictions.h5ad")

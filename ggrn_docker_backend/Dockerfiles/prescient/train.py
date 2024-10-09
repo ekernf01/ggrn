@@ -27,7 +27,7 @@ defaults = {
     "train_epochs": 2500,
     "save": 2500, # Suggest you set this to same value as train_epochs
     "train_dt": 0.1,
-    "num_cells_to_simulate": 100,
+    "num_cells_to_simulate": 20,
 }
 ggrn_defaults = {
     "low_dimensional_value": 50
@@ -48,25 +48,10 @@ predictions_metadata["perturbed_gene_is_measured"] = [
     all([g in train.var_names for g in p.split(",")]) 
     for p in predictions_metadata["perturbation"]
 ]
+print(f"PRESCIENT can only predict KO consequences for measured genes. Will not make predictions for {np.sum(1-predictions_metadata['perturbed_gene_is_measured'])} unmeasured genes.")
 predictions_metadata = predictions_metadata.query("perturbed_gene_is_measured")
 
-# Let's talk about prescient timescales. Internally, we use 3 (three) different timescales.
-# 
-# Input timepoints are transformed to be consecutive starting from 0 during process_data (flag --fix_non_consecutive).
-# So if training samples are labeled 0, 2, 12, 24, we would re-label them 0,1,2,3,4. 
-# So now we have two timescales, "original" and "consecutive".
-# 
-# Next, it's a differential equation method. It's solved via time discretization. 
-# The [prescient docs](https://cgs.csail.mit.edu/prescient/documentation/) say there's a default dt of 0.1, so ten steps per time-point.
-# So if I want expression at time 2, I should feed 20 to prescient's num_steps arg.
-# So now we have three timescales, "original" and "consecutive" and "steps". 
-# 
-# Finally: as of 2024 March 13, interpolation with PRESCIENT is also tricky, and I have not read the details yet. https://github.com/gifford-lab/prescient/issues/3
-# 
-# Guidance to the user: 
-# 
-# - the "timepoint" in the `obs` of `train.h5ad` and in `predictions_metadata` should be on the original scale e.g. 0, 2, 12, 24. 
-# - `prediction_timescale` in `predictions_metadata` should be on the "consecutive" scale, so a 2 would bring you from 0 to 12 or from 2 to 24.
+# SEE THE README ON TIMESCALES!!
 tps = train.obs["timepoint"]
 time_scales = {
     "train_original": np.sort(np.unique(tps)), 
@@ -157,10 +142,11 @@ scaler.fit_transform(original_expression)
 # Make predictions
 print(f"Running {predictions_metadata.shape[0]} simulations", flush = True)
 predictions = anndata.AnnData(
-    X = np.zeros((predictions_metadata.shape[0], train.n_vars)),
-    obs = predictions_metadata,
+    X = np.zeros((predictions_metadata.shape[0]*kwargs["num_cells_to_simulate"], train.n_vars)),
+    obs = pd.concat([predictions_metadata for _ in range(kwargs["num_cells_to_simulate"])]),
     var = train.var,
 )
+predictions.obs_names_make_unique()
 del predictions_metadata #this is now stored in predictions.obs
 
 predictions.obs["error_message"] = "no prediction made"
@@ -188,6 +174,8 @@ for _, current_prediction_metadata in predictions.obs.drop_duplicates().iterrows
                 z = -5
             if float(level) > control:
                 z = 5
+            if float(level) == control:
+                z = 0
         else:
             # handle samples labeled e.g. "control" or "scramble"
             z = 0
@@ -219,7 +207,7 @@ for _, current_prediction_metadata in predictions.obs.drop_duplicates().iterrows
                             "_perturb_simulation.pt"
                             )
         # Average multiple trajectories to get a single trajectory
-        pca_predicted_embeddings = result["perturbed_sim"][0][0:predict_steps,:,:].mean(axis=(0,1), keepdims = False).reshape(1, -1)
+        pca_predicted_embeddings = result["perturbed_sim"][0][predict_steps,:,:]
         # Now we un-do all of PRESCIENT's preprocessing in order to return data on the scale of the training data input. 
         scaled_expression = pca_model.inverse_transform(pca_predicted_embeddings)
         predictions[prediction_index, :].X = scaler.inverse_transform(scaled_expression) 

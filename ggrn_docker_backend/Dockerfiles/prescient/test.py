@@ -1,7 +1,6 @@
 # This is a test script for using prescient via GGRN + docker (not in the sense of train vs test data).
 import pereggrn_perturbations
 import ggrn.api as ggrn
-import shutil
 import numpy as np
 import pandas as pd
 
@@ -11,15 +10,14 @@ test = pereggrn_perturbations.load_perturbation("saunders_endoderm", is_timeseri
 top_genes = train.var.query("highly_variable_rank <= 2000").index
 train = train[:, list(set(list(test.uns["perturbed_and_measured_genes"]) + list(top_genes)))]
 test  =  test[:, list(set(list(test.uns["perturbed_and_measured_genes"]) + list(top_genes)))]
-grn = ggrn.GRN(train)
+grn = ggrn.GRN(train, species="zebrafish")
 grn.fit(
     method = "docker____ekernf01/ggrn_docker_backend_prescient", 
     kwargs = {    
         "pretrain_epochs": 2, # in practice, 500
         "train_epochs": 3, # in practice, 2500
         "save": 3, # Suggest you set this to same value as train_epochs, 
-        "species": "zebrafish"
-    },
+    }
 )
 # This is different from the test.py for most Docker backends, because does_simulation_progress is set to True.  
 predictions_metadata = pd.merge(

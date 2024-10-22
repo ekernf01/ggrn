@@ -495,7 +495,7 @@ class GRN:
                         alphas=(0.01, 0.1, 1.0, 10.0, 100), 
                         fit_intercept=True,
                         alpha_per_target=False, 
-                        store_cv_results=True, #this lets us use ._cv_values later for simulating data.
+                        store_cv_values=True, #this lets us use ._cv_values later for simulating data.
                         **kwargs,
                     ).fit(X, y)
             elif method == "RidgeCVExtraPenalty":
@@ -504,7 +504,7 @@ class GRN:
                         alphas=(0.01, 0.1, 1.0, 10.0, 100), 
                         fit_intercept=True,
                         alpha_per_target=False, 
-                        store_cv_results=True, #this lets us use ._cv_values later for simulating data.
+                        store_cv_values=True, #this lets us use ._cv_values later for simulating data.
                         **kwargs,
                     ).fit(X, y)
                     if rcv.alpha_ == np.max(rcv.alphas):
@@ -513,7 +513,7 @@ class GRN:
                             alphas=bigger_alphas, 
                             fit_intercept=True,
                             alpha_per_target=False, 
-                            store_cv_results=True,
+                            store_cv_values=True,
                              **kwargs,
                         ).fit(X, y)
                     return rcv
@@ -540,7 +540,6 @@ class GRN:
         prediction_timescale: list = [1],
         feature_extraction_requires_raw_data: bool = False
     ):
-        print(prediction_timescale)
         """Predict expression after new perturbations.
 
         Args:
@@ -566,6 +565,7 @@ class GRN:
 
         Returns: AnnData with predicted expression after perturbations. The shape and .obs metadata will be the same as the input "predictions" or "predictions_metadata".
         """
+
         if not isinstance(prediction_timescale, list):
             prediction_timescale = [prediction_timescale]
         if type(self.models)==list and not self.models:
@@ -576,7 +576,7 @@ class GRN:
         # Some extra info to be transferred from the training data.
         columns_to_transfer = self.training_args["confounders"].copy()
         
-        
+
         if predictions is None:
             predictions = anndata.AnnData(
                 X = np.zeros((predictions_metadata.shape[0], len(self.train.var_names))),
@@ -724,13 +724,12 @@ class GRN:
             with open('from_to_docker/err.txt', 'r') as file:
                 print(file.read())
             assert os.path.isfile("from_to_docker/predictions.h5ad"), "Expected to find from_to_docker/predictions.h5ad . You may find more info in the logs generated within the container: from_to_docker/err.txt , which should also get copied to stdout."
-            input_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
             predictions = sc.read_h5ad("from_to_docker/predictions.h5ad")
             assert predictions.n_obs > 0, "Method in Docker container predicted zero observations. Was there a warning about timepoints?"
             predictions.obs["perturbation"] = predictions.obs["perturbation"].astype(str)
             predictions.obs["expression_level_after_perturbation"] = predictions.obs["expression_level_after_perturbation"].astype(str)
             assert all(predictions.var_names == self.train.var_names), \
-                "Method in Docker container violated expectations of GGRN:" + \
+                "The backend running inside the Docker container violated expectations of GGRN:" + \
                 "Variable names must be identical between training and test data."
         elif self.training_args["method"].startswith("DCDFG"):
             predictions = self.models.predict(
@@ -810,6 +809,7 @@ class GRN:
                         raise ValueError("Noise standard deviation could not be extracted from trained models.")
                 predictions.X[:,i] = predictions.X[:,i] + np.random.standard_normal(len(predictions.X[:,i]))*noise_sd
         
+        print(f"{predictions.obs['perturbation'].unique().shape[0]} unique perturbation(s)", flush=True)        
         return predictions
 
     def extract_features(self, train: anndata.AnnData = None, in_place: bool = True, geneformer_finetune_labels: str = "louvain", n_cpu = 15):
@@ -1376,7 +1376,7 @@ def match_timeseries(train_data: anndata.AnnData, matching_method: str, matched_
         train_data.obs["matched_control"] = [train_data.obs.loc[m, "integer_index"] if pd.notnull(m) else np.nan for m in train_data.obs.loc[:, "matched_control"]]
     return train_data
 
-def match_controls(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool):
+def match_controls(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool) -> anndata.AnnData:
     """
     Add info to the training data about which observations are paired with which.
 
@@ -1407,15 +1407,15 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
                 train_data.obs.loc[i, "matched_control"] = np.nan if matching_method.lower() == "closest_with_unmatched_controls" else j
     elif matching_method.lower() == "optimal_transport":
         assert HAS_WOT, "wot is not installed, so optimal transport matching is unavailable. Please install it with 'pip install wot'."
-        os.makedirs("wot_input", exist_ok=True)
-        VAR_GENE_DS_PATH = "wot_input/train.h5ad"
-        CELL_DAYS_PATH = "wot_input/timepoints.txt"
-        pd.DataFrame({"id": train_data.obs_names, "day": [int(b) for b in train_data.obs["is_control"]]}).to_csv(CELL_DAYS_PATH, sep = "\t")
-        train_data.write_h5ad(VAR_GENE_DS_PATH)
-        wot_adata = wot.io.read_dataset(VAR_GENE_DS_PATH, obs=[CELL_DAYS_PATH])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            VAR_GENE_DS_PATH = f"{temp_dir}/train.h5ad"
+            CELL_DAYS_PATH = f"{temp_dir}/timepoints.txt"
+            pd.DataFrame({"id": train_data.obs_names, "day": [int(b) for b in train_data.obs["is_control"]]}).to_csv(CELL_DAYS_PATH, sep = "\t")
+            train_data.write_h5ad(VAR_GENE_DS_PATH)
+            wot_adata = wot.io.read_dataset(VAR_GENE_DS_PATH, obs=[CELL_DAYS_PATH])
         wot_adata.obs["day"] = [int(b) for b in train_data.obs["is_control"]] # This seems redundant, but sometimes wot.io returns NaNs for day.
         ot_model  = wot.ot.OTModel(wot_adata,epsilon = 0.05, lambda1 = 1,lambda2 = 50)
-        del train_data.obs["matched_control"]
+        train_data.obs["matched_control"] = np.nan
         train_data.obs.loc[~train_data.obs["is_control"], "matched_control"] = control_indices_integer[ot_model.compute_transport_map(0,1).X.argmax(axis = 1)]
         # Controls should be self-matched. 
         for j,i in enumerate(train_data.obs.index):

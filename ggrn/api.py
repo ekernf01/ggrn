@@ -928,7 +928,7 @@ class GRN:
         if do_parallel:   
                 m = Parallel(n_jobs=cpu_count()-1, verbose = verbose, backend="loky")(
                     delayed(apply_supervised_ml_one_gene)(
-                        train_obs = self.train.obs,
+                        train_obs = self.train.obs.loc[self.train.obs["matched_control"].notnull(), :],
                         target_expr = self.train.X[self.train.obs["matched_control"].notnull(),i],
                         features = self.features,
                         network = network,
@@ -943,7 +943,7 @@ class GRN:
         else:
             return [
                 apply_supervised_ml_one_gene(
-                    train_obs = self.train.obs,
+                    train_obs = self.train.obs.loc[self.train.obs["matched_control"].notnull(), :],
                     target_expr = self.train.X[self.train.obs["matched_control"].notnull(),i],
                     features = self.features,
                     network = network,
@@ -1369,7 +1369,9 @@ def match_timeseries(train_data: anndata.AnnData, matching_method: str, matched_
     for i in range(len(timepoints)-1, 0, -1):
         current = train_data[train_data.obs["timepoint"].isin(timepoints[[i-1, i]]), :].copy()
         current.obs["is_control"] = current.obs["timepoint"] == timepoints[i-1]
+        del current.obs["matched_control"]
         current = match_controls(current, matching_method=matching_method, matched_control_is_integer=False)
+        current.obs.loc[current.obs["is_control"], "matched_control"] = np.nan # Do not match controls to themselves
         train_data.obs.loc[current.obs.index, "matched_control"] = current.obs.loc[:, "matched_control"]
     if matched_control_is_integer:
         train_data.obs["integer_index"] = range(train_data.n_obs)
@@ -1422,7 +1424,6 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
             if train_data.obs.loc[i, "is_control"]:
                 train_data.obs.loc[i, "matched_control"] = j
         train_data.obs["matched_control"] = train_data.obs["matched_control"].astype(int)
-        shutil.rmtree("wot_input")
     elif matching_method.lower() == "steady_state":
         train_data.obs["matched_control"] = range(len(train_data.obs.index))
     elif matching_method.lower() == "random":

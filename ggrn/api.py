@@ -667,7 +667,7 @@ class GRN:
             for i,row in predictions.obs.iterrows():
                 assert len(row["perturbation"].split(","))==1, "the 'regulon' backend currently only handles single perturbations."
                 logfc = float(row["expression_level_after_perturbation"]) - predictions[i, row["perturbation"]].X
-                targets = self.network.get_targets(row[0])["target"]
+                targets = self.network.get_targets(regulator = row["perturbation"])["target"]
                 targets = list(set(predictions.var_names).intersection(targets))
                 if len(targets) > 0:
                     predictions[i, targets].X = predictions[i, targets].X + logfc
@@ -1207,7 +1207,10 @@ def predict_one_gene(
             else:
                 X = features[:,is_in_model]
             X = X[is_in_cell_type,:]
-            predictions[is_in_cell_type] = model[cell_type].predict(X = X).squeeze()
+            try:
+                predictions[is_in_cell_type] = model[cell_type].predict(X = X).squeeze() 
+            except KeyError:
+                pass # not every cell type gets a model, due to the non-steady-state matching schemes
     elif training_args["cell_type_sharing_strategy"] == "identical":
         regulators = get_regulators(
             eligible_regulators = eligible_regulators, 

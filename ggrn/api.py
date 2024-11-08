@@ -109,7 +109,7 @@ class GRN:
             print("Checking the training data.")
             assert self.check_perturbation_dataset(is_timeseries = False, is_perturbation = False) # Less stringent version of checks
         if self.feature_extraction.lower().startswith("geneformer"):
-            assert self.eligible_regulators is None, "You may not constrain the set of regulators when using GeneFormer feature extraction."
+            assert self.eligible_regulators is None, f"You may not constrain the set of regulators when using GeneFormer feature extraction. eligible_regulators should be None but was:\n{eligible_regulators}"
         print("Done.")
         return
 
@@ -1360,22 +1360,37 @@ def isnan_safe(x):
     except:
         return False
 
-def match_timeseries(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool):
+def match_timeseries(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool, do_look_backwards: bool = True) -> anndata.AnnData:
     """For a timeseries dataset, match observations at each timepoint to counterparts, usually at the previous timepoint. 
     For details, see help(match_controls). This function uses match_controls internally on each pair of consecutive timepoints,
     labeling the earlier timepoint as the controls and the later as the perturbed samples.
+
+    Args:
+        - train_data (AnnData): Expression data to use in feature extraction. Defaults to self.train.
+        - matching_method (str): See match_controls.
+        - matched_control_is_integer (bool): See match_controls.
+        - do_look_backwards (bool): If True (default), match each timepoint to the previous one. If False, match each timepoint to the next one.
     """
     timepoints = np.sort(train_data.obs["timepoint"].unique())
     assert len(timepoints) > 1, "match_timeseries requires at least two timepoints."
     train_data.obs_names = train_data.obs_names.astype(str)
     train_data.obs["matched_control"] = np.nan
-    for i in range(len(timepoints)-1, 0, -1):
-        current = train_data[train_data.obs["timepoint"].isin(timepoints[[i-1, i]]), :].copy()
-        current.obs["is_control"] = current.obs["timepoint"] == timepoints[i-1]
-        del current.obs["matched_control"]
-        current = match_controls(current, matching_method=matching_method, matched_control_is_integer=False)
-        current.obs.loc[current.obs["is_control"], "matched_control"] = np.nan # Do not match controls to themselves
-        train_data.obs.loc[current.obs.index, "matched_control"] = current.obs.loc[:, "matched_control"]
+    if do_look_backwards:
+        for i in range(len(timepoints)-1, 0, -1):
+            current = train_data[train_data.obs["timepoint"].isin(timepoints[[i-1, i]]), :].copy()
+            current.obs["is_control"] = current.obs["timepoint"] == timepoints[i-1]
+            del current.obs["matched_control"]
+            current = match_controls(current, matching_method=matching_method, matched_control_is_integer=False)
+            current.obs.loc[current.obs["is_control"], "matched_control"] = np.nan # usually we would match controls to themselves. We don't want that here.
+            train_data.obs.loc[current.obs.index, "matched_control"] = current.obs.loc[:, "matched_control"]
+    else:
+        for i in range(len(timepoints)-1):
+            current = train_data[train_data.obs["timepoint"].isin(timepoints[[i+1, i]]), :].copy()
+            current.obs["is_control"] = current.obs["timepoint"] == timepoints[i+1]
+            del current.obs["matched_control"]
+            current = match_controls(current, matching_method=matching_method, matched_control_is_integer=False)
+            current.obs.loc[current.obs["is_control"], "matched_control"] = np.nan # usually we would match controls to themselves. We don't want that here.
+            train_data.obs.loc[current.obs.index, "matched_control"] = current.obs.loc[:, "matched_control"]        
     if matched_control_is_integer:
         train_data.obs["integer_index"] = range(train_data.n_obs)
         train_data.obs["matched_control"] = [train_data.obs.loc[m, "integer_index"] if pd.notnull(m) else np.nan for m in train_data.obs.loc[:, "matched_control"]]

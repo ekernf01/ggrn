@@ -109,7 +109,8 @@ class GRN:
             print("Checking the training data.")
             assert self.check_perturbation_dataset(is_timeseries = False, is_perturbation = False) # Less stringent version of checks
         if self.feature_extraction.lower().startswith("geneformer"):
-            assert self.eligible_regulators is None, f"You may not constrain the set of regulators when using GeneFormer feature extraction. eligible_regulators should be None but was:\n{eligible_regulators}"
+            if not self.eligible_regulators is None:
+                print("GeneFormer feature extraction requires all genes to be eligible regulators. eligible_regulators will be ignored.")
         print("Done.")
         return
 

@@ -758,7 +758,8 @@ class GRN:
                 print(f"Predicting time-point {current_time}")
                 # We are computing f(f(...f(X)...)) one f() at a time and saving whichever intermediate timepoints are in prediction_timescale. 
                 # predictions is already in the right shape etc to contain all timepoints.
-                # We're going to use a view of the final timepoint as working memory, because it can be continuously 
+                # 
+                # Why is_last? Because we're going to use a view of the final timepoint as working memory, because it can be continuously 
                 # overwritten until the last iteration. One the final iteration, it will reach what we want.
                 is_last = predictions.obs["prediction_timescale"]==max(prediction_timescale)
                 starting_features = self.extract_features(
@@ -776,7 +777,6 @@ class GRN:
                 if feature_extraction_requires_raw_data:
                     del predictions.raw # save memory: raw data are no longer needed after feature extraction
                 gc.collect()
-                # This will be used in the next run thru this loop
                 y = self.predict_parallel(features = starting_features, cell_type_labels = cell_type_labels, do_parallel = do_parallel) 
                 for gene in range(len(self.train.var_names)):
                     predictions[is_last,gene].X = y[gene]
@@ -1363,18 +1363,25 @@ def isnan_safe(x):
 
 def match_timeseries(train_data: anndata.AnnData, matching_method: str, matched_control_is_integer: bool, do_look_backwards: bool = True) -> anndata.AnnData:
     """For a timeseries dataset, match observations at each timepoint to counterparts, usually at the previous timepoint. 
-    For details, see help(match_controls). This function uses match_controls internally on each pair of consecutive timepoints,
-    labeling the earlier timepoint as the controls and the later as the perturbed samples.
+    This function matches each data point to a counterpart, usually at the previous timepoint.
 
     Args:
         - train_data (AnnData): Expression data to use in feature extraction. Defaults to self.train.
         - matching_method (str): See match_controls.
         - matched_control_is_integer (bool): See match_controls.
-        - do_look_backwards (bool): If True (default), match each timepoint to the previous one. If False, match each timepoint to the next one.
+        - do_look_backwards (bool): If True (default), match each timepoint to the previous one. If False, match each timepoint to the next one. 
+            Ignored if "matching_method" is "user" or "steady_state".
     """
+    train_data.obs_names = train_data.obs_names.astype(str)
+    if matching_method == "user":
+        assert "matched_control" in train_data.obs.columns, "If matching_method=='user', a column 'matched_control' must be present in train_data.obs."
+        return train_data
+    if matching_method == "steady_state":
+        train_data.obs["matched_control"] = train_data.obs.index
+        return train_data
+    # Otherwise, proceed to match each timepoint to the next.
     timepoints = np.sort(train_data.obs["timepoint"].unique())
     assert len(timepoints) > 1, "match_timeseries requires at least two timepoints."
-    train_data.obs_names = train_data.obs_names.astype(str)
     train_data.obs["matched_control"] = np.nan
     if do_look_backwards:
         for i in range(len(timepoints)-1, 0, -1):
@@ -1417,9 +1424,13 @@ def match_controls(train_data: anndata.AnnData, matching_method: str, matched_co
     if matching_method.lower() in {"closest", "closest_with_unmatched_controls"}:
         assert any(train_data.obs["is_control"]), "matching_method=='closest' requires some True entries in train_data.obs['is_control']."
         # Index the control expression with a K-D tree
-        kdt = KDTree(train_data.X[train_data.obs["is_control"],:], leaf_size=30, metric='euclidean')
+        try: 
+            X = train_data.X.toarray()
+        except AttributeError:
+            X = train_data.X
+        kdt = KDTree(X[train_data.obs["is_control"],:], leaf_size=30, metric='euclidean')
         # Query the index to get 1 nearest neighbor
-        nn = [nn[0] for nn in kdt.query(train_data.X, k=1, return_distance=False)]
+        nn = [nn[0] for nn in kdt.query(X, k=1, return_distance=False)]
         # Convert from index among controls to index among all obs
         train_data.obs["matched_control"] = control_indices_integer[nn]
         # Controls should be self-matched. K-D tree can violate this when input data have exact dupes.

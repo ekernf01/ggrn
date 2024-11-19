@@ -19,6 +19,7 @@ import tempfile
 
 try:
     from torch.cuda import is_available as is_gpu_available
+    HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
 try:

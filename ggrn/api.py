@@ -84,10 +84,17 @@ class GRN:
             network (pereggrn_networks.LightNetwork, optional): LightNetwork object containing prior knowledge about regulators and targets.
             eligible_regulators (List, optional): List of gene names that are allowed to be regulators. Defaults to all genes.
             validate_immediately (bool, optional): check validity of the input anndata?
-            feature_extraction (str, optional): How to extract features. Defaults to "tf_rna", which uses the mRNA level of the TF. You 
-                can also specify "geneformer" to use GeneFormer to extract cell embeddings. 
-            memoization_folder (str, optional): Where to store memoized results, e.g. for a lengthy grid search on a cluster with a 36 hour time limit. 
-            default_geneformer_model (str, optional): Path to the GeneFormer model used for feature extraction. Defaults to "../Geneformer".
+            feature_extraction (str, optional): How to extract features. Defaults to "mrna", which uses the mRNA level of each regulator. You 
+                can also specify: "geneformer_hyperparam_finetune", "geneformer_finetune", "geneformer", or "geneformer_model_<path/to/finetuned/model>"
+                These all use GeneFormer to extract cell embeddings. 
+                    - "geneformer_hyperparam_finetune" is preferred (fine-tuning with hyperparameter optimization), 
+                    - "geneformer_finetune" is the next best option (fine-tuning without hyperparameter optimization). 
+                    - "geneformer" does not do any fine-tuning and is not recommended.
+                    - If you already have a finetuned GeneFormer model, you can provide the path to it by passing in "geneformer_model_<path/to/finetuned/model>".
+                GGRN will cache the fine-tuned model in the memoization folder, so you can dig that up and reuse it.
+            memoization_folder (str, optional): Where to store memoized GeneFormer models. Defaults to a temporary directory, so if you don't specify this,
+                you'll lose the fine-tuned model when the program ends.
+            default_geneformer_model (str, optional): Path to the pretrained GeneFormer model. Defaults to "../Geneformer".
             species (str, optional): Species of the training data. Defaults to "human".
         """
         self.species = species
@@ -814,18 +821,96 @@ class GRN:
         print(f"{predictions.obs['perturbation'].unique().shape[0]} unique perturbation(s)", flush=True)        
         return predictions
 
-    def extract_features(self, train: anndata.AnnData = None, in_place: bool = True, geneformer_finetune_labels: str = "louvain", n_cpu = 15):
+
+    def get_finetuned_geneformer_model_memoized(self, file_with_tokens)
+        """Follow slightly complicated GeneFormer finetuning logic
+
+        - Does the user want fine-tuning? 
+            - If no, don't. 
+            - If yes, see next.
+        - Do we have the right labels to do fine-tuning? If yes, see next. 
+        - Have we finetuned a model already? If yes, don't fine-tune. If no, see next. 
+        - Does the user want to optimize hyperparams? 
+            - If no, `model = finetune_with_fixed_hyperparameters()`.
+            - If yes, `model = finetune_with_hyperparameter_search()`. Did it work?
+                - If no, `model = finetune_with_fixed_hyperparameters()`. 
+        """
+        if self.feature_extraction.lower().startswith("geneformer"):
+            return self.default_geneformer_model
+        if self.feature_extraction.lower().startswith("geneformer_model_"):
+            return self.feature_extraction.removeprefix("geneformer_model_")
+        assert self.feature_extraction.lower() in {"geneformer_finetune", "geneformer_hyperparam_finetune"}, f"Unknown feature extraction method {self.feature_extraction}."
+        
+        # Label-finding behavior: 
+            # Default to "louvain" for backwards compatibility with results in the 2024 Oct 01 preprint.
+            # If "louvain" is not there, default to "cell_type".
+            # Use the user input, not the default, if it's there.
+        if geneformer_finetune_labels is None: 
+            if "louvain" in self.train.obs.columns:
+                geneformer_finetune_labels = "louvain"
+            elif "cell_type" in self.train.obs.columns:
+                geneformer_finetune_labels = "cell_type"
+            else:
+                geneformer_finetune_labels = None
+        if geneformer_finetune_labels not in self.train.obs.columns:
+            print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. "
+                "Embeddings will be extracted from the pre-trained model. If this message occurs after training (e.g. during prediction), the fine-tuning "
+                "may have taken place already during training, and you can ignore this message.")
+            return self.default_geneformer_model
+        
+        # Model will be cached during initial training. No need to redo fine tuning at prediction time. 
+        if self.geneformer_finetuned is not None:
+            return self.geneformer_finetuned
+        
+        # - Does the user want to optimize hyperparams? 
+        #     - If yes, `model = finetune_with_hyperparameter_search()`. Did it work?
+        #         - If no, `model = finetune_with_fixed_hyperparameters()`. 
+        #     - If no, `model = finetune_with_fixed_hyperparameters()`.
+
+        
+        # Fine-tune with hyperparam sweep if 0) desired and 1) possible and 2) not done already
+        if self.feature_extraction.lower() == "geneformer_hyperparam_finetune" and geneformer_finetune_labels is not None:
+            try:
+                optimal_hyperparameters = geneformer_hyperparameter_optimization.optimize_hyperparameters(file_with_tokens, column_with_labels = geneformer_finetune_labels, n_cpu = n_cpu)
+                return geneformer_hyperparameter_optimization.finetune_classify(
+                    file_with_tokens = file_with_tokens, 
+                    column_with_labels = geneformer_finetune_labels,
+                    max_input_size = 2 ** 11,  # 2048
+                    max_lr                = optimal_hyperparameters[2]["learning_rate"],
+                    freeze_layers = 2,
+                    geneformer_batch_size = optimal_hyperparameters[2]["per_device_train_batch_size"],
+                    lr_schedule_fn        = optimal_hyperparameters[2]["lr_scheduler_type"],
+                    warmup_steps          = optimal_hyperparameters[2]["warmup_steps"],
+                    epochs                = optimal_hyperparameters[2]["num_train_epochs"],
+                    optimizer = "adamw",
+                    GPU_NUMBER = [], 
+                    seed                  = 42, 
+                    weight_decay          = optimal_hyperparameters[2]["weight_decay"],
+                )
+            except ray.tune.error.TuneError as e:
+                print(f"Hyperparameter selection failed with error {repr(e)}. Fine-tuning with default hyperparameters.")
+                self.feature_extraction = "geneformer_finetune"
+        
+        if self.feature_extraction == "geneformer_finetune" and geneformer_finetune_labels is not None:
+            return geneformer_hyperparameter_optimization.finetune_classify(
+                    file_with_tokens = file_with_tokens, 
+                    column_with_labels = geneformer_finetune_labels,
+                    base_model = self.default_geneformer_model,
+                )
+            
+
+    def extract_features(self, train: anndata.AnnData = None, in_place: bool = True, geneformer_finetune_labels: str = None, n_cpu = 15):
         """Create a feature matrix to be used when predicting each observation from its matched control. 
 
         Args:
             train: (anndata.AnnData, optional). Expression data to use in feature extraction. Defaults to self.train.
             in_place (bool, optional): If True (default), put results in self.features. Otherwise, return results as a matrix. 
-            geneformer_finetune_labels (str, optional): Labels to use for fine-tuning geneformer. 
+            geneformer_finetune_labels (str, optional): Name of column in self.train.obs containing labels to use for fine-tuning geneformer. 
         """
         assert self.feature_extraction.lower().startswith("geneformer_model_") or \
             self.feature_extraction.lower() in {'geneformer', 'geneformer_finetune', 'geneformer_hyperparam_finetune'} or \
                 self.feature_extraction.lower() in {"tf_mrna", "tf_rna", "mrna"}, \
-                    f"Feature extraction must be 'mrna', 'geneformer', 'geneformer_finetune', 'geneformer_hyperparam_finetune', or 'geneformer_model_<path/to/pretrained/model>'; got '{self.feature_extraction}'."
+                    f"Feature extraction must be 'mrna', 'geneformer', 'geneformer_finetune', 'geneformer_hyperparam_finetune', or 'geneformer_model_<path/to/finetuned/model>'; got '{self.feature_extraction}'."
         if train is None:
             train = self.train # shallow copy is best here
         assert "matched_control" in train.obs.columns, "Feature extraction requires that matching (with `match_controls()`) has already been done."
@@ -856,59 +941,19 @@ class GRN:
             else:
                 return features
 
+        # GeneFormer feature extraction
+        assert self.feature_extraction.lower().startswith("geneformer"), f"unrecognized feature extraction method {self.feature_extraction}"
+        assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently, GeneFormer feature extraction can only be used with the steady-state matching scheme."
+        if not HAS_TORCH:
+            raise ImportError("PyTorch is not installed, so GeneFormer cannot be used.")
+        if not HAS_GENEFORMER:
+            raise ImportError("GeneFormer backend is not installed -- are you missing GeneFormer, geneformer_embeddings, or ray[tune]?")
         with tempfile.TemporaryDirectory() as folder_with_tokens:
-            if self.feature_extraction.lower().startswith("geneformer"):
-                assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently, GeneFormer feature extraction can only be used with the steady-state matching scheme."
-                if not HAS_TORCH:
-                    raise ImportError("PyTorch is not installed, so GeneFormer cannot be used.")
-                if not HAS_GENEFORMER:
-                    raise ImportError("GeneFormer backend is not installed -- are you missing GeneFormer, geneformer_embeddings, or ray[tune]?")
-                self.geneformer_finetuned = self.default_geneformer_model  # Default to pretrained model with no fine-tuning
-                self.eligible_regulators = list(range(256))
-                file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels, folder_with_tokens = folder_with_tokens)
-            # Check if user has already fine-tuned a model
-            if self.feature_extraction.lower().startswith("geneformer_model_"):
-                self.geneformer_finetuned = self.feature_extraction.removeprefix("geneformer_model_")
-            # Check if we have labels to fine-tune a model
-            if self.feature_extraction.lower() in {"geneformer_finetune", "geneformer_hyperparam_finetune"} and geneformer_finetune_labels not in train.obs.columns:
-                print(f"The column {geneformer_finetune_labels} was not found in the training data, so geneformer cannot be fine-tuned. "
-                        "Embeddings will be extracted from the pre-trained model. If this message occurs after training, the fine-tuning "
-                        "may have taken place already during training, and that model will be re-used.")
-                geneformer_finetune_labels = None
-            # Fine-tune without hyperparam sweep if 0) desired and 1) possible and 2) not done already
-            if self.feature_extraction == "geneformer_finetune" and \
-                geneformer_finetune_labels is not None and \
-                    self.geneformer_finetuned is None:
-                self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
-                        file_with_tokens = file_with_tokens, 
-                        column_with_labels = geneformer_finetune_labels,
-                        base_model = self.default_geneformer_model,
-                    )
-            # Fine-tune with hyperparam sweep if 0) desired and 1) possible and 2) not done already
-            if self.feature_extraction.lower() in {"geneformer_hyperparam_finetune"} and \
-                geneformer_finetune_labels is not None and \
-                    self.geneformer_finetuned is None:
-                try:
-                    optimal_hyperparameters = geneformer_hyperparameter_optimization.optimize_hyperparameters(file_with_tokens, column_with_labels = geneformer_finetune_labels, n_cpu = n_cpu)
-                    self.geneformer_finetuned = geneformer_hyperparameter_optimization.finetune_classify(
-                        file_with_tokens = file_with_tokens, 
-                        column_with_labels = geneformer_finetune_labels,
-                        max_input_size = 2 ** 11,  # 2048
-                        max_lr                = optimal_hyperparameters[2]["learning_rate"],
-                        freeze_layers = 2,
-                        geneformer_batch_size = optimal_hyperparameters[2]["per_device_train_batch_size"],
-                        lr_schedule_fn        = optimal_hyperparameters[2]["lr_scheduler_type"],
-                        warmup_steps          = optimal_hyperparameters[2]["warmup_steps"],
-                        epochs                = optimal_hyperparameters[2]["num_train_epochs"],
-                        optimizer = "adamw",
-                        GPU_NUMBER = [], 
-                        seed                  = 42, 
-                        weight_decay          = optimal_hyperparameters[2]["weight_decay"],
-                    )
-                except ray.tune.error.TuneError as e:
-                    print(f"Hyperparameter selection failed with error {repr(e)}. Fine-tuning with default hyperparameters.")
-                    self.feature_extraction = "geneformer_finetune"
-            
+            # Default to pretrained model with no fine-tuning
+            self.eligible_regulators = list(range(256))
+            file_with_tokens = geneformer_embeddings.tokenize(adata_train = train, geneformer_finetune_labels = geneformer_finetune_labels, folder_with_tokens = folder_with_tokens)
+            # Either finetune a geneformer model, or retrieve an existing one.
+            self.geneformer_finetuned = self.get_finetuned_geneformer_model_memoized(file_with_tokens)
             features = geneformer_embeddings.get_geneformer_perturbed_cell_embeddings(
                 adata_train=train,
                 file_with_tokens = file_with_tokens,

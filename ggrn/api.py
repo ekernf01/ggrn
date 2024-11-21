@@ -822,7 +822,7 @@ class GRN:
         return predictions
 
 
-    def get_finetuned_geneformer_model_memoized(self, file_with_tokens)
+    def get_finetuned_geneformer_model_memoized(self, file_with_tokens):
         """Follow slightly complicated GeneFormer finetuning logic
 
         - Does the user want fine-tuning? 

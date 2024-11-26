@@ -41,14 +41,14 @@ predictions
 
 ### Prediction program
 
-This runs inside the container. It must:
+This runs inside the container. It should:
 
 - read training data from `from_to_docker/train.h5ad`. You can expect this training data to pass the checks in `ggrn.validate_training_data(train)`.
 - read perturbations to predict in `from_to_docker/predictions_metadata.csv`. You can expect a table containing the following columns: `['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']`. **Please return one prediction per row in this table.** For multi-gene perturbations, you'll find quoted comma-separated lists as strings, and yes, I'm very sorry about this. An example: "NANOG,POU5F1" for `perturbation` and "5.43,0.0" for `expression_level_after_perturbation`. 
-- read all the GGRN args from `from_to_docker/ggrn_args.json`. (To learn more about these, consult the Grammar of Gene Regulatory Networks documentation.) Two exceptions:
+- (optional) read the GGRN args from `from_to_docker/ggrn_args.json`. (To learn more about these, consult the Grammar of Gene Regulatory Networks documentation.) Two exceptions:
     - For the `prediction_timescale` parameter, look for a column in `predictions_metadata.csv`
     - For the `network` parameter, you can read a base network from `from_to_docker/network.parquet`.
-- read custom keyword args from `from_to_docker/kwargs.json`
+- (optional) read custom keyword args from `from_to_docker/kwargs.json`
 - train your method and make those predictions, preserving the order.
 - log stdout to `from_to_docker/stdout.txt`
 - log stderr to `from_to_docker/err.txt`

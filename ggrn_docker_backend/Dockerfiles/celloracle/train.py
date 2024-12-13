@@ -6,7 +6,6 @@ import pandas as pd
 import anndata
 import celloracle as co
 import warnings
-import traceback
 from pereggrn_networks import LightNetwork, pivotNetworkLongToWide
 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
@@ -70,8 +69,8 @@ predictions = anndata.AnnData(
     obs = predictions_metadata,
     var = train.var,
 )
-predictions.obs["error_message"] = ""
-for _, gene_level_steps in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale']].drop_duplicates().iterrows(): 
+predictions.obs["error_message"] = "no errors"
+for _, gene_level_steps in predictions.obs[['perturbation', "expression_level_after_perturbation", 'prediction_timescale', "is_control"]].drop_duplicates().iterrows(): 
     try:
         oracle.simulate_shift(
             # For multi-gene perturbations, the format provided by ggrn is like "OCT4,NANOG" and "2.11135,5.09493".
@@ -90,17 +89,22 @@ for _, gene_level_steps in predictions.obs[['perturbation', "expression_level_af
                 (predictions.obs["cell_type"]==starting_state["cell_type"]) & \
                 (predictions.obs["timepoint"]==starting_state["timepoint"]) & \
                 (predictions.obs["perturbation"]==gene_level_steps["perturbation"]) & \
+                (predictions.obs["is_control"]==gene_level_steps["is_control"]) & \
                 (predictions.obs["expression_level_after_perturbation"]==gene_level_steps["expression_level_after_perturbation"]) & \
                 (predictions.obs["prediction_timescale"]==gene_level_steps["prediction_timescale"]) 
             train_index = (oracle.adata.obs["cell_type"]==starting_state["cell_type"]) & (oracle.adata.obs["timepoint"]==starting_state["timepoint"])
             for i in np.where(prediction_index)[0]:
-                predictions[i, :].X = oracle.adata[train_index,:].layers['simulated_count'].squeeze().mean(0)
+                if gene_level_steps["is_control"]:
+                    predictions[i, :].X = oracle.adata[train_index,:].layers["normalized_count"].mean(0)
+                else:
+                    predictions[i, :].X = oracle.adata[train_index,:].layers['simulated_count'].mean(0)
     except ValueError as e:
         for _, starting_state in predictions.obs[['timepoint', 'cell_type']].drop_duplicates().iterrows(): 
             prediction_index = \
                 (predictions.obs["cell_type"]==starting_state["cell_type"] ) & \
                 (predictions.obs["timepoint"]==starting_state["timepoint"] ) & \
                 (predictions.obs["perturbation"]==gene_level_steps["perturbation"] ) & \
+                (predictions.obs["is_control"]==gene_level_steps["is_control"]) & \
                 (predictions.obs["expression_level_after_perturbation"]==gene_level_steps["expression_level_after_perturbation"] ) & \
                 (predictions.obs["prediction_timescale"]==gene_level_steps["prediction_timescale"] )
             predictions[prediction_index, :].X = np.nan

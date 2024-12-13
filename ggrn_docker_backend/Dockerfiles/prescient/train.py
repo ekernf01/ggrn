@@ -85,14 +85,14 @@ predictions_metadata["prediction_timescale_steps"] = [time_scales["convert_conse
 print(f"Estimating growth rates assuming species is {kwargs['species']}.", flush=True)
 assert kwargs["species"] + "_birth.csv" in os.listdir(), f"Proliferation-associated genes for {kwargs['species']} not found. Cannot run PRESCIENT."
 assert kwargs["species"] + "_death.csv" in os.listdir(), f"Apoptosis-associated genes for {kwargs['species']} not found. Cannot run PRESCIENT."
-subprocess.call(["/opt/venv/bin/python", "estimate-growth-rates.py", 
+_ = subprocess.run(["/opt/venv/bin/python", "estimate-growth-rates.py", 
                 "--input_h5ad", "from_to_docker/train.h5ad", 
                 "--birth_gst", kwargs["species"] + "_birth.csv",
                 "--death_gst", kwargs["species"] + "_death.csv",
-                "--outfile", "growth_rates.pt"])
+                "--outfile", "growth_rates.pt"], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
 print("Processing input data.", flush=True)
-subprocess.call(
+_ = subprocess.run(
     [
     "/opt/venv/bin/python", "-m", 
     "prescient", "process_data", 
@@ -103,10 +103,10 @@ subprocess.call(
     "--celltype_col", "cell_type", 
     "--growth_path", "growth_rates.pt",
     "--num_pcs", str(ggrn_args["low_dimensional_value"]), 
-])
+], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
 print("Training model.", flush=True)
-subprocess.call([
+_ = subprocess.run([
     "/opt/venv/bin/python", "-m", 
     "prescient", "train_model", 
     "-i", "traindata.pt", 
@@ -128,13 +128,13 @@ subprocess.call([
     # "--train", kwargs["train"],
     # "--config", kwargs["config"],
     "--weight_name", "kegg-growth"
-])
+], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
 
 # Below, this PCA and scaler will help us transform predictions back to the scale of the data in from_to_docker/train.h5ad.
 print("Decoding output.", flush=True)
-original_expression = torch.load("traindata.pt")["data"]
-pca_model = torch.load("traindata.pt")["pca"]
+original_expression = torch.load("traindata.pt", weights_only=True)["data"]
+pca_model = torch.load("traindata.pt", weights_only=True)["pca"]
 scaler = preprocessing.StandardScaler()
 scaler.fit_transform(original_expression)
 
@@ -177,10 +177,11 @@ for _, current_prediction_metadata in predictions.obs.drop_duplicates().iterrows
             if float(level) == control:
                 z = 0
         else:
-            # handle samples labeled e.g. "control" or "scramble"
+            # handle samples labeled e.g. "control" or "scramble" by selecting any gene and then not perturbing it.
             z = 0
             goi = train.var_names[0]
-        subprocess.call([
+        
+        _ = subprocess.run([
             "/opt/venv/bin/python", "-m", 
             "prescient", "perturbation_analysis", 
             "-i", "traindata.pt", 
@@ -196,7 +197,7 @@ for _, current_prediction_metadata in predictions.obs.drop_duplicates().iterrows
             "--tp_subset", str(current_prediction_metadata["timepoint"]), 
             "--seed", "2", 
             "-o", "prescient_trained",
-        ])
+        ], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
         result = torch.load("prescient_trained/kegg-growth-softplus_1_500-1e-06/"
                             "seed_2"
                             "_train.epoch_" f"{int(kwargs['train_epochs']):06}"
@@ -204,7 +205,8 @@ for _, current_prediction_metadata in predictions.obs.drop_duplicates().iterrows
                             "_num.cells_" f"{kwargs['num_cells_to_simulate']}"
                             "_num.steps_" f"{current_prediction_metadata['prediction_timescale_steps']}" 
                             "_subsets_" f"{str(current_prediction_metadata['timepoint'])}_{current_prediction_metadata['cell_type']}"
-                            "_perturb_simulation.pt"
+                            "_perturb_simulation.pt", 
+                            weights_only=True
                             )
         # Average multiple trajectories to get a single trajectory
         pca_predicted_embeddings = result["perturbed_sim"][0][predict_steps,:,:]

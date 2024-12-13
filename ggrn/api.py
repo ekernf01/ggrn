@@ -14,7 +14,6 @@ import scipy.sparse
 import json
 import gc
 import subprocess
-import warnings
 import tempfile
 
 try:
@@ -943,7 +942,9 @@ class GRN:
 
         # GeneFormer feature extraction
         assert self.feature_extraction.lower().startswith("geneformer"), f"unrecognized feature extraction method {self.feature_extraction}"
-        assert all(self.train.obs.index==self.train.obs["matched_control"]), "Currently, GeneFormer feature extraction can only be used with the steady-state matching scheme."
+        if not all(self.train.obs.index==self.train.obs["matched_control"]):
+            print("Currently, GeneFormer feature extraction can only be used with the steady-state matching scheme. Matching will be ignored.")
+            self.train.obs["matched_control"] = self.train.obs.index
         if not HAS_TORCH:
             raise ImportError("PyTorch is not installed, so GeneFormer cannot be used.")
         if not HAS_GENEFORMER:
@@ -973,7 +974,7 @@ class GRN:
         if network is None:
             network = self.network
         if do_parallel:   
-                m = Parallel(n_jobs=cpu_count()-1, verbose = verbose, backend="loky")(
+                m = Parallel(n_jobs=cpu_count(), verbose = verbose, backend="loky")(
                     delayed(apply_supervised_ml_one_gene)(
                         train_obs = self.train.obs.loc[self.train.obs["matched_control"].notnull(), :],
                         target_expr = self.train.X[self.train.obs["matched_control"].notnull(),i],
@@ -1182,7 +1183,7 @@ class GRN:
         if network is None:
             network = self.network  
         if do_parallel:
-            return Parallel(n_jobs=cpu_count()-1, verbose = 1, backend="loky")(
+            return Parallel(n_jobs=cpu_count(), verbose = 1, backend="loky")(
                 delayed(predict_one_gene)(
                     target = self.train.var_names[i],
                     model = self.models[i],

@@ -7,6 +7,9 @@ import scanpy as sc
 import subprocess
 import torch
 from sklearn import preprocessing
+import warnings
+# suppress an annoying FutureWarning whose instructions are vague and I could not satisfy them
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
 predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
@@ -133,8 +136,8 @@ _ = subprocess.run([
 
 # Below, this PCA and scaler will help us transform predictions back to the scale of the data in from_to_docker/train.h5ad.
 print("Decoding output.", flush=True)
-original_expression = torch.load("traindata.pt", weights_only=True)["data"]
-pca_model = torch.load("traindata.pt", weights_only=True)["pca"]
+original_expression = torch.load("traindata.pt")["data"]
+pca_model = torch.load("traindata.pt")["pca"]
 scaler = preprocessing.StandardScaler()
 scaler.fit_transform(original_expression)
 
@@ -206,7 +209,6 @@ for _, current_prediction_metadata in predictions.obs.drop_duplicates().iterrows
                             "_num.steps_" f"{current_prediction_metadata['prediction_timescale_steps']}" 
                             "_subsets_" f"{str(current_prediction_metadata['timepoint'])}_{current_prediction_metadata['cell_type']}"
                             "_perturb_simulation.pt", 
-                            weights_only=True
                             )
         # Average multiple trajectories to get a single trajectory
         pca_predicted_embeddings = result["perturbed_sim"][0][predict_steps,:,:]

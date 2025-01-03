@@ -19,10 +19,11 @@ println("t1_matrix type: ", typeof(t1_matrix), ", size: ", size(t1_matrix));
 println("Training forecaster");
 testForecaster = RNAForecaster.trainRNAForecaster(t0_matrix, t1_matrix, trainingProp=1.0);
 
-println("Predicting perturbation outcomes");
+println("Predicting ", nrow(predictions_metadata), "perturbation outcomes");
 predictions = Array{Float32, 2}(undef, size(t0_matrix, 1), size(predictions_metadata, 1));
 predictions_metadata[!,"error_messages"] = fill("no error", nrow(predictions_metadata));
 for cell in 1:nrow(predictions_metadata)
+    print(".")
 
     # select correct starting cell type and timepoint
     timepoint = predictions_metadata[cell, "timepoint"];
@@ -52,7 +53,7 @@ for cell in 1:nrow(predictions_metadata)
                 perturbationLevels = elap
             );
         end
-        predictions[:, cell] = Statistics.mean(eachslice(x, dims=2))
+        predictions[:, cell] = Statistics.mean(eachslice(x[:,:,end], dims=2));
     catch e
         predictions_metadata[cell, "error_messages"] = sprint(showerror, e);
         predictions[:, cell] .= NaN;
@@ -62,6 +63,9 @@ end
 println("Summary of errors:")
 error_counts = combine(groupby(predictions_metadata, :error_messages), nrow)
 println(error_counts)
+for i in 1:nrow(error_counts)
+    println(error_counts[i, :error_messages])
+end
 
 println("Writing predictions")
 CSV.write(

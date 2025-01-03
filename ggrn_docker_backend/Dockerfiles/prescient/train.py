@@ -17,12 +17,14 @@ assert predictions_metadata.shape[0] > 0, "predictions_metadata is empty."
 for c in ['timepoint', 'cell_type', 'perturbation', "expression_level_after_perturbation", 'prediction_timescale']:
     assert c in predictions_metadata.columns, f"For the ggrn prescient backend, predictions_metadata.columns is required to contain {c}."
 
+
 with open(os.path.join("from_to_docker/kwargs.json")) as f:
     kwargs = json.load(f)
 
 
 with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
     ggrn_args = json.load(f)
+
 
 # Set defaults
 defaults = {
@@ -46,13 +48,14 @@ for k in ggrn_defaults:
     if k not in ggrn_args:
         ggrn_args[k] = ggrn_defaults[k]
 
+
 # We can only predict KO consequences for detected genes. 
 predictions_metadata["perturbed_gene_is_measured"] = [
     all([g in train.var_names for g in p.split(",")]) 
     for p in predictions_metadata["perturbation"]
 ]
-print(f"PRESCIENT can only predict KO consequences for measured genes. Will not make predictions for {np.sum(1-predictions_metadata['perturbed_gene_is_measured'])} unmeasured genes.")
-predictions_metadata = predictions_metadata.query("perturbed_gene_is_measured")
+print(f"PRESCIENT can only predict KO consequences for measured genes. Will treat the following names as controls:")
+predictions_metadata.query("~perturbed_gene_is_measured")["perturbation"].value_counts().to_csv()
 
 # SEE THE README ON TIMESCALES!!
 tps = train.obs["timepoint"]
@@ -81,6 +84,7 @@ if any( predictions_metadata["takedown_timepoint_consecutive"] > final_timepoint
     print(predictions_metadata["takedown_timepoint_consecutive"].value_counts().sort_index(inplace=False))
     assert predictions_metadata.shape[0] > 0, "All predictions were beyond the end of the training data. Please adjust the prediction_timescale in predictions_metadata.csv."
     
+
 # Direct input to PRESCIENT: consecutive-ized timepoints and number of steps
 predictions_metadata["timepoint"] = predictions_metadata["timepoint_consecutive"].copy()
 predictions_metadata["prediction_timescale_steps"] = [time_scales["convert_consecutive_to_steps"][t]    for t in predictions_metadata["prediction_timescale"]]
@@ -161,7 +165,9 @@ for _, current_prediction_metadata in predictions.obs.drop_duplicates().iterrows
         (predictions.obs["expression_level_after_perturbation"] ==current_prediction_metadata["expression_level_after_perturbation"]) & \
         (predictions.obs["prediction_timescale_steps"]          ==current_prediction_metadata["prediction_timescale_steps"]) 
     prediction_index = prediction_index[prediction_index].index
+    print(".", end="")
     if len(prediction_index) < 1:
+        # NaN's can cause this: np.nan!=np.nan
         print("No predictions to make for this metadatum.")
         print(current_prediction_metadata.to_csv(sep=" "))
         continue

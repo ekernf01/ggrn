@@ -3,7 +3,7 @@ import pereggrn_perturbations
 import ggrn.api as ggrn
 import numpy as np
 import pandas as pd
-
+from pereggrn.experimenter import find_controls
 pereggrn_perturbations.set_data_path("../../../../perturbation_data/perturbations") # you may need to change this to the path where the perturbations are stored on your computer.
 train = pereggrn_perturbations.load_perturbation("saunders_endoderm", is_timeseries=True)
 test = pereggrn_perturbations.load_perturbation("saunders_endoderm", is_timeseries=False)
@@ -27,3 +27,5 @@ predictions_metadata = pd.merge(
 )
 predictions_metadata = predictions_metadata.loc[np.random.choice(predictions_metadata.index, 25), :]
 ad_out = grn.predict( predictions_metadata = predictions_metadata, prediction_timescale = [1,2,3,4] )
+ad_out = find_controls(ad_out)
+assert ad_out.obs["is_control"].any()

@@ -11,7 +11,11 @@ RUN python3 -m venv /opt/venv
 # Activate the virtual environment and install packages
 RUN /opt/venv/bin/pip install --upgrade pip
 RUN /opt/venv/bin/pip install annoy
-RUN /opt/venv/bin/pip install git+https://github.com/ekernf01/prescient@3c873425e96cbd894e877361fee2671a89ff2618
+RUN /opt/venv/bin/pip install git+https://github.com/ekernf01/prescient@c61c843
+# Iterate on PRESCIENT bugfixes faster
+RUN /opt/venv/bin/pip uninstall -y prescient
+RUN /opt/venv/bin/pip install  --no-deps git+https://github.com/ekernf01/prescient@0f9a1e6
+  
 
 # Copy necessary files
 COPY human_birth.csv .

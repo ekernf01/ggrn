@@ -13,6 +13,9 @@ predictions_metadata = pd.read_csv("from_to_docker/predictions_metadata.csv")
 with open(os.path.join("from_to_docker/kwargs.json")) as f:
     kwargs = json.load(f)
 
+if kwargs["matching_method"]=="steady_state":
+    raise ValueError(f"steady state matching may not be used with rnaforecaster. If you really want to do this, please file a github issue.")
+
 with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
     ggrn_args = json.load(f)
 

@@ -43,7 +43,7 @@ for cell in 1:nrow(predictions_metadata)
             elap = predictions_metadata[cell, "expression_level_after_perturbation"];
             elap = split(string(elap), ',');
             elap = [parse(Float32, x) for x in elap];
-        
+            # This line should throw an error if the perturbation is not a valid gene name
             x = predictCellFutures(
                 testForecaster[1], 
                 starting_state, 

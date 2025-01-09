@@ -1,7 +1,7 @@
 A Docker container to let GGRN interface to CellOracle. Here is how the standard GGRN inputs are used. 
 
-- `matching_method`: fixed to "steady_state"
-- `do_perturbations_persist`: fixed to True
+- `matching_method`: ignored (fixed to "steady_state")
+- `do_perturbations_persist`: ignored (fixed to True)
 - `prediction_timescale`: this is mapped to "n_propagation" in "oracle.simulate_shift()".
 - `regression_method`: ignored (CO uses Bayesian ridge regression)
 - `eligible_regulators`: ignored (all TF's in the input network are used)

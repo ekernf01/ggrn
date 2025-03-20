@@ -24,6 +24,12 @@ defaults = {
 for k in defaults:
     if k not in kwargs:
         kwargs[k] = defaults[k]
+# ================================ YOUR CODE HERE ================================
+
 
 pred = AnnData(obs = predictions_metadata, var = train.var, X = np.zeros((predictions_metadata.shape[0], train.shape[1])))
+# pred = yourmethod.train(train).predict(predictions_metadata)
+
+
+# ================================================================================
 pred.write_h5ad(os.path.join(out_dir, "predictions.h5ad"))

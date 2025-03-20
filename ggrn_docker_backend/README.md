@@ -1,4 +1,4 @@
-GGRN can interface with any expression forecasting software that can run in a Docker or Singularity container. You need to make a Docker image and a program that will run in it. The folder `from_to_docker` will be "mounted" to the container, allowing files to pass in and out. `from_to_docker` will appear on the host machine in the working directory where GGRN is run, and it will appear in the Docker container at the root of the filesystem. Once the container finishes running, it will be deleted, but outputs in `from_to_docker` will persist; GGRN will read these and return them. This setup allows methods developers to use Julia, Python, R, or anything that can run on Linux, while allowing the GGRN users to operate entirely within Python.
+GGRN can interface with any expression forecasting software that can run in a Docker or Singularity container. You need to make a Docker image and a program that will run in it. The folder `from_to_docker` will be "mounted" to the container, allowing files to pass in and out. 
 
 ## Example you can modify
 
@@ -38,6 +38,10 @@ predictions
 
 
 ## Explicit requirements
+
+### How files are passed in and out
+
+A directory `from_to_docker` will appear on the host machine in the working directory where GGRN is run, and it will appear in the Docker container at the root of the filesystem. Once the container finishes running, the container will be deleted, but output files in `from_to_docker` will persist; GGRN will read these and return information form them. This setup allows methods developers to use Julia, Python, R, or anything that can run on Linux, while allowing the GGRN users to operate entirely within Python.
 
 ### Prediction program
 

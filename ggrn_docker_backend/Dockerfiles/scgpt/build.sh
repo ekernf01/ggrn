@@ -6,7 +6,8 @@ name=scgpt
 docker build -t ggrn_docker_backend_${name} .
 
 # We use this for easy interactive development but it should usually be commented out.
-# docker run --rm -it --gpus all -v /home/ekernf01/Desktop/jhu/research/projects/perturbation_prediction/cell_type_knowledge_transfer/ggrn/ggrn_docker_backend/Dockerfiles/${name}/from_to_docker:/from_to_docker ggrn_docker_backend_${name}
+# The second -v bind-mounts a persistent host cache for the ~1.5GB checkpoint so it is downloaded only once.
+# docker run --rm -it --gpus all -v /home/ekernf01/Desktop/jhu/research/projects/perturbation_prediction/cell_type_knowledge_transfer/ggrn/ggrn_docker_backend/Dockerfiles/${name}/from_to_docker:/from_to_docker -v ${HOME}/.cache/scgpt_weights:/scgpt_weights ggrn_docker_backend_${name}
 
 docker tag ggrn_docker_backend_${name} ekernf01/ggrn_docker_backend_${name}
 docker login

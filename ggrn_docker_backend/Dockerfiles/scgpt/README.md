@@ -29,8 +29,30 @@ perturbation is encoded as a per-gene *flag* (perturbed / not) rather than a tar
   with `--gpus all`. It will run on CPU but is impractically slow.
 - **Pretrained weights**: the ~1.5GB "whole-human" checkpoint folder
   (<https://drive.google.com/drive/folders/1oWh_-ZRdhtoGQ2Fw24HP41FgLoomVo-y>) must be available. Options:
-  (a) uncomment the `gdown` block in the `Dockerfile` to bake it in at build time; (b) mount it and set
-  `SCGPT_MODEL_DIR`; or (c) let `train.py` download it on first run with `gdown` (needs network access).
+  (a) uncomment the `gdown` block in the `Dockerfile` to bake it in at build time; (b) mount a persistent
+  host dir and set `SCGPT_MODEL_DIR`; or (c) let `train.py` download it on first run with `gdown` (needs
+  network access). See **Caching the weights** below for how to make (c) download only once.
+
+### Caching the weights
+
+`train.py` downloads the checkpoint **into `kwargs['load_model']` / `SCGPT_MODEL_DIR`** (default
+`/scgpt_weights/scGPT_human`) and **only if it is not already present**. So caching just means pointing
+that directory at a location that survives between container runs.
+
+GGRN itself only bind-mounts `from_to_docker/` — and it deletes and recreates that directory on every
+`fit()` — so the weights *cannot* be cached there. Instead, pass an extra bind mount to `docker run`
+through the method string, whose format is `docker__<args>__<image>`:
+
+```
+docker__--gpus all -v $HOME/.cache/scgpt_weights:/scgpt_weights__ekernf01/ggrn_docker_backend_scgpt
+```
+
+Because the container's default checkpoint dir is `/scgpt_weights/scGPT_human`, mounting a host cache at
+`/scgpt_weights` means the first run downloads into `$HOME/.cache/scgpt_weights/scGPT_human` on the host
+and every later run finds it already there and skips the download. (`--gpus all` is included because
+scGPT needs a GPU anyway.) See `test.py` for a runnable example and `build.sh` for the interactive form.
+For a zero-runtime-download alternative, bake the weights into the image via the commented `gdown` block
+in the `Dockerfile`.
 - **Gene vocabulary**: only genes present in both `train.var_names` and the scGPT vocab are usable.
   Perturbations naming a gene that is not measured are reported in `obs["error_message"]` and predicted
   as the control mean.

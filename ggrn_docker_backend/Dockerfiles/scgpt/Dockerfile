@@ -23,6 +23,12 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
     /bin/bash ~/miniconda.sh -b -p /opt/conda
 ENV PATH=$CONDA_DIR/bin:$PATH
 
+# Recent conda releases require explicitly accepting the Terms of Service for Anaconda's default
+# channels before `conda env create` will run (otherwise it fails with a ToS error). Accept them
+# non-interactively. (Harmless even though environment.yml pins conda-forge.)
+RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main \
+ && conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
 COPY environment.yml .
 RUN conda env create -f environment.yml
 
@@ -37,11 +43,13 @@ SHELL ["conda", "run", "-n", "scgpt_env", "/bin/bash", "-c"]
 #  - torch-geometric supplies the DataLoader / Data graph objects gears uses.
 #  - gdown is used at runtime by train.py to fetch the pretrained "whole-human" checkpoint folder
 #    from Google Drive if it is not already baked in / mounted.
-RUN pip install --no-cache-dir \
-        torch==1.13.1+cu117 torchtext==0.14.1 --extra-index-url https://download.pytorch.org/whl/cu117
+RUN pip install --no-cache-dir torch==1.13.1 torchtext==0.14.1
 RUN pip install --no-cache-dir torch-geometric==2.3.1
 RUN pip install --no-cache-dir "cell-gears<0.0.3" "scvi-tools>=0.16.0,<1.0" "scanpy>=1.9.1,<2.0.0" gdown
 RUN pip install --no-cache-dir scgpt
+# scgpt imports IPython at module load time (scgpt/utils/util.py -> `from IPython import get_ipython`),
+# so it must be installed even for headless/container use or `import scgpt` fails.
+RUN pip install --no-cache-dir ipython
 
 # Optionally pre-download the pretrained "whole-human" checkpoint at build time so the container
 # can run without network access. This is a ~1.5GB Google Drive folder; comment out if you prefer

@@ -104,24 +104,39 @@ POOL_SIZE = int(kwargs["pool_size"])
 # --------------------------------------------------------------------------------------------------
 model_dir = kwargs["load_model"]
 needed = ["best_model.pt", "args.json", "vocab.json"]
-have_ckpt = model_dir and all(os.path.exists(os.path.join(model_dir, f)) for f in needed)
-if not have_ckpt:
-    print(f"Pretrained scGPT checkpoint not found at {model_dir}; attempting to download the "
-          f"'whole-human' folder from Google Drive with gdown.")
+
+
+def _has_ckpt(d):
+    return bool(d) and all(os.path.exists(os.path.join(d, f)) for f in needed)
+
+
+# Caching: we download the checkpoint INTO `model_dir` and only if it is not already there. If
+# `model_dir` is a persistent host bind-mount (recommended -- see README.md / test.py / build.sh),
+# the ~1.5GB "whole-human" folder is fetched exactly once and reused on every subsequent run. If
+# `model_dir` is an ephemeral in-container path (the default when nothing is mounted), it is
+# re-fetched each run, which is slow and hits Google Drive rate limits -- so mount a cache dir.
+if _has_ckpt(model_dir):
+    print(f"Using cached scGPT checkpoint at {model_dir}; no download needed.")
+    have_ckpt = True
+else:
+    print(f"No cached scGPT checkpoint at {model_dir}; downloading the 'whole-human' folder from "
+          f"Google Drive with gdown. This happens once per persistent cache dir.")
     try:
         import gdown
-        os.makedirs("/scgpt_weights", exist_ok=True)
-        model_dir = "/scgpt_weights/scGPT_human"
+        os.makedirs(model_dir, exist_ok=True)   # download into the *configured* dir, not a hardcoded one
         gdown.download_folder(id=kwargs["gdrive_folder_id"], output=model_dir, quiet=False, use_cookies=False)
-        have_ckpt = all(os.path.exists(os.path.join(model_dir, f)) for f in needed)
+        have_ckpt = _has_ckpt(model_dir)
+        if have_ckpt:
+            print(f"Cached scGPT checkpoint to {model_dir} for reuse on future runs.")
     except Exception as e:
         print(f"Could not download pretrained weights automatically: {repr(e)}")
         have_ckpt = False
 if not have_ckpt:
     raise FileNotFoundError(
         "scGPT requires the pretrained 'whole-human' checkpoint (best_model.pt, args.json, vocab.json). "
-        "Either bake it into the image (see the commented gdown block in the Dockerfile), mount it, or "
-        "set the SCGPT_MODEL_DIR env var / kwargs['load_model'] to a folder containing it. Download from "
+        "For caching, bind-mount a persistent host dir to the checkpoint location and point "
+        "kwargs['load_model'] / SCGPT_MODEL_DIR at it (see README.md), or bake the weights into the image "
+        "(the commented gdown block in the Dockerfile). Download from "
         "https://drive.google.com/drive/folders/1oWh_-ZRdhtoGQ2Fw24HP41FgLoomVo-y"
     )
 

@@ -1,0 +1,51 @@
+Running CellOracle with params:
+cell_type_labels: cell_type
+cell_type_sharing_strategy: identical
+confounders: []
+do_perturbations_persist: true
+eligible_regulators: '[all TF''s in the input network are used]'
+feature_extraction: mRNA
+low_dimensional_structure: none
+low_dimensional_training: '[ignored]'
+matching_method: steady_state
+network_prior: restrictive
+predict_self: false
+prediction_timescale:
+- 1
+pruning_parameter: 2000
+pruning_strategy: none
+regression_method: docker____ekernf01/ggrn_docker_backend_celloracle
+k_neighbors: 25
+n_comps: 50
+species: human
+Importing data and preprocessing
+Running imputation
+Running ridge regression and pruning
+regressing
+Inferring GRN for intestine...
+Inferring GRN for liver...
+Inferring GRN for pancreas...
+Inferring GRN for pharynx...
+filtering
+filtering
+refitting
+Running simulations
+Summary of error messages encounered during prediction:
+no errors                                                                                                                                       22
+ValueError('Gene noto is not included in the Gene expression matrix.')                                                                           4
+ValueError('Gene met is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')        4
+ValueError('Gene hgfa is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')       3
+ValueError('Gene mut is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')        3
+ValueError('Gene hoxb1a is not included in the Gene expression matrix.')                                                                         2
+ValueError('Gene tbxta is not included in the Gene expression matrix.')                                                                          2
+ValueError('Gene zc4h2 is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')      2
+ValueError('Gene phox2a is not included in the Gene expression matrix.')                                                                         1
+ValueError('Gene tbx16l is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')     1
+ValueError('Gene foxd3 is not included in the Gene expression matrix.')                                                                          1
+ValueError('Gene foxi1 is not included in the Gene expression matrix.')                                                                          1
+ValueError('Gene cdx1a is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')      1
+ValueError('Gene epha4a is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')     1
+ValueError('Gene wnt3a is not included in the base GRN; It is not TF or TF motif information is not available. Cannot perform simulation.')      1
+ValueError('Gene hand2 is not included in the Gene expression matrix.')                                                                          1
+Name: error_message, dtype: int64
+Saving results.

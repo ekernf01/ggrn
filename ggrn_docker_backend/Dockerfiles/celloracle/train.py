@@ -7,6 +7,8 @@ import anndata
 import celloracle as co
 import warnings
 from pereggrn_networks import LightNetwork, pivotNetworkLongToWide
+import yaml
+import sys
 
 train = sc.read_h5ad("from_to_docker/train.h5ad")
 try:
@@ -24,11 +26,44 @@ with open(os.path.join("from_to_docker/kwargs.json")) as f:
     kwargs = json.load(f)
 with open(os.path.join("from_to_docker/ggrn_args.json")) as f:
     ggrn_args = json.load(f)
-if "pruning_parameter" not in ggrn_args or ggrn_args["pruning_parameter"] is None or np.isnan(ggrn_args["pruning_parameter"]):
-    ggrn_args["pruning_parameter"] = 2000
+
+# Set defaults
+defaults = {
+    "k_neighbors": 25,
+    "n_comps": 50,
+}
+ggrn_defaults = {
+    "pruning_parameter": 2000,
+    "matching_method": "steady_state", 
+    "do_perturbations_persist": True, 
+    "prediction_timescale": "[set at time of prediction]",
+    "regression_method": "[CellOracle uses Bayesian ridge regression]",
+    "eligible_regulators": "[all TF's in the input network are used]",
+    "predict_self": False,
+    "feature_extraction": "mRNA",
+    "low_dimensional_structure": "none",
+    "low_dimensional_training": "[ignored]",
+    "pruning_strategy": "[ignored -- CellOracle always does pruning.]",
+    "network_prior": "restrictive",
+    "cell_type_sharing_strategy": "distinct",
+}
+
+for k in defaults:
+    if k not in kwargs or kwargs[k] is None or np.isnan(kwargs[k]):
+        kwargs[k] = defaults[k]
+
+for k in ggrn_defaults:
+    if k not in ggrn_args or ggrn_args[k] is None:
+        ggrn_args[k] = ggrn_defaults[k]
+
+
+print("Running CellOracle with params:")
+
+yaml.dump(ggrn_args, sys.stdout)
+yaml.dump(kwargs, sys.stdout)
 
 print("Importing data and preprocessing")
-sc.tl.pca(train, n_comps=50)
+sc.tl.pca(train, n_comps=int(kwargs["n_comps"]))
 oracle = co.Oracle()
 oracle.import_anndata_as_raw_count(
     adata=train,
@@ -37,11 +72,12 @@ oracle.import_anndata_as_raw_count(
 )
 oracle.import_TF_data(TF_info_matrix=network)
 oracle.perform_PCA()
-n_comps = 50
-k = 1
+
 print("Running imputation")
-oracle.knn_imputation(n_pca_dims=n_comps, k=k, balanced=True, b_sight=k*8,
+k =int(kwargs["k_neighbors"])
+oracle.knn_imputation(n_pca_dims=int(kwargs["n_comps"]), k=k, balanced=True, b_sight=k*8,
                         b_maxl=k*4, n_jobs=4)
+del k
 
 print("Running ridge regression and pruning")
 with warnings.catch_warnings():

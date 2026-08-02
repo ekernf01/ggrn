@@ -274,7 +274,7 @@ class GRN:
             # Training happens when you call predict.
             # This is because we do not want to try to save trained models inside a container and return control flow to Python while leaving the container intact.
             try:
-                subprocess.call(['sudo', 'rm', '-rf', 'from_to_docker'])
+                subprocess.call(['rm', '-rf', 'from_to_docker'])
             except Exception as e:
                 print(f"Could not remove previous docker data; message was {e}.")
                 raise e

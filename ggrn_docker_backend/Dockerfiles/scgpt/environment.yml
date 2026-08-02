@@ -1,0 +1,14 @@
+# scGPT itself and its heavy deps (torch, torchtext, torch-geometric, cell-gears, scgpt) are
+# installed with pip in the Dockerfile so we can pin the exact CUDA build of torch. Conda here
+# only provides a clean Python 3.9 base plus a few general-purpose scientific packages. The env
+# name MUST match the one the Dockerfile activates ("scgpt_env").
+name: scgpt_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pip
+  - numpy
+  - pandas
+  - cython
+  - pytest
